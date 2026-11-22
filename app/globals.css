@@ -52,10 +52,10 @@ summary::-webkit-details-marker {
 /* Markdown styling */
 .prose-gemini {
   color: #e3e3e3;
-  font-size: 0.96rem;
-  line-height: 1.68;
+  font-size: 0.98rem;
+  line-height: 1.75;
 }
-.prose-gemini p { margin-bottom: 0.85rem; }
+.prose-gemini p { margin-bottom: 1.1rem; }
 .prose-gemini p:last-child { margin-bottom: 0; }
 .prose-gemini h1 { font-size: 1.45rem; font-weight: 600; margin: 1.25rem 0 0.5rem; color: #f2f2f2; }
 .prose-gemini h2 { font-size: 1.25rem; font-weight: 600; margin: 1.1rem 0 0.45rem; color: #f2f2f2; }

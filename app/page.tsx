@@ -671,8 +671,8 @@ export default function Home() {
       )}
 
       {/* Top Navigation Header */}
-      <header className="h-14 border-b border-gemini-border/80 flex items-center justify-between px-2.5 sm:px-4 z-20 bg-gemini-base/95 backdrop-blur safe-top flex-shrink-0">
-        <div className="flex items-center gap-1 sm:gap-2">
+      <header className="h-14 sm:h-16 border-b border-gemini-border/80 flex items-center justify-between px-3 sm:px-6 z-20 bg-gemini-base/95 backdrop-blur-md safe-top flex-shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-3">
           {/* Menu button */}
           <button
             type="button"
@@ -690,7 +690,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full hover:bg-gemini-surface transition text-left group touch-manipulation min-h-[38px]"
+              className="flex items-center gap-2 px-3 sm:px-3.5 py-1.5 rounded-full hover:bg-gemini-surface transition text-left group touch-manipulation min-h-[40px]"
             >
               <div className="h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
@@ -768,8 +768,8 @@ export default function Home() {
         </div>
 
         {/* Right Header Controls */}
-        <div className="flex items-center gap-1 sm:gap-1.5">
-          {/* Side Pane Drawer Toggle (Files, Stats, Logs) */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Side Pane Drawer Toggle (Files, Stats, Logs) - hidden on mobile for breathing room */}
           <button
             type="button"
             onClick={() => {
@@ -777,7 +777,7 @@ export default function Home() {
               setIsSidePaneOpen(!isSidePaneOpen);
             }}
             title="Inspect Environment"
-            className={`p-2 rounded-full transition touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center ${
+            className={`hidden sm:flex p-2 rounded-full transition touch-manipulation min-h-[44px] min-w-[44px] items-center justify-center ${
               isSidePaneOpen ? "bg-gemini-border text-blue-400" : "text-zinc-400 hover:text-white hover:bg-gemini-surface"
             }`}
           >
@@ -786,13 +786,13 @@ export default function Home() {
             </svg>
           </button>
 
-          {/* Export conversation */}
+          {/* Export conversation - hidden on mobile */}
           {messages.length > 0 && (
             <button
               type="button"
               onClick={handleExportConversation}
               title="Export Conversation"
-              className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
+              className="hidden sm:flex p-2 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition touch-manipulation min-h-[44px] min-w-[44px] items-center justify-center"
             >
               <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -800,7 +800,7 @@ export default function Home() {
             </button>
           )}
 
-          {/* Usage Monitor Pill */}
+          {/* Usage Monitor Pill - hidden on small screens */}
           <button
             type="button"
             onClick={() => {
@@ -808,7 +808,7 @@ export default function Home() {
               setIsUsageModalOpen(true);
             }}
             title="View Usage & Limits"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-gemini-surface hover:bg-gemini-border border border-gemini-border/60 text-xs text-zinc-300 transition touch-manipulation min-h-[36px]"
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gemini-surface hover:bg-gemini-border border border-gemini-border/60 text-xs text-zinc-300 transition touch-manipulation min-h-[38px]"
           >
             <span
               className={`h-2 w-2 rounded-full ${
@@ -827,7 +827,7 @@ export default function Home() {
             type="button"
             onClick={handleCreateNewChat}
             title="New Chat"
-            className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
+            className="p-2 rounded-full text-zinc-300 hover:text-white hover:bg-gemini-surface transition touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -842,11 +842,11 @@ export default function Home() {
         <aside
           aria-hidden={isMobile && !isSidebarOpen}
           inert={isMobile && !isSidebarOpen ? true : undefined}
-          className={`fixed lg:static inset-y-0 left-0 z-40 w-72 bg-[#18191a] border-r border-gemini-border flex flex-col transition-transform duration-300 ${
+          className={`fixed lg:static inset-y-0 left-0 z-40 w-80 max-w-[85vw] lg:w-72 bg-[#18191a] border-r border-gemini-border flex flex-col transition-transform duration-300 ${
             isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
           }`}
         >
-          <div className="p-3 border-b border-gemini-border/70 flex flex-col gap-2.5">
+          <div className="p-3.5 border-b border-gemini-border/70 flex flex-col gap-3">
             {/* Mobile Header with close button */}
             <div className="flex items-center justify-between lg:hidden pb-1">
               <span className="text-xs font-semibold text-zinc-400">Conversations</span>
@@ -864,7 +864,7 @@ export default function Home() {
             <button
               type="button"
               onClick={handleCreateNewChat}
-              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-full bg-gemini-surface hover:bg-gemini-border text-sm font-medium text-white transition touch-manipulation min-h-[44px]"
+              className="w-full flex items-center justify-between px-4 py-2.5 rounded-full bg-gemini-surface hover:bg-gemini-border text-sm font-medium text-white transition touch-manipulation min-h-[44px]"
             >
               <span className="flex items-center gap-2">
                 <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -874,6 +874,43 @@ export default function Home() {
               </span>
               <span className="hidden lg:inline text-[11px] text-zinc-400 font-mono">Ctrl+K</span>
             </button>
+
+            {/* Quick Environment Tools in Sidebar */}
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  fetchSidePaneData("stats");
+                  setIsSidePaneOpen(true);
+                  if (isMobile) setIsSidebarOpen(false);
+                }}
+                className="px-2 py-1.5 rounded-xl bg-gemini-surface/80 hover:bg-gemini-border text-[11px] text-zinc-300 hover:text-white text-center font-medium transition touch-manipulation min-h-[36px] flex items-center justify-center"
+              >
+                Stats
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  fetchSidePaneData("files");
+                  setIsSidePaneOpen(true);
+                  if (isMobile) setIsSidebarOpen(false);
+                }}
+                className="px-2 py-1.5 rounded-xl bg-gemini-surface/80 hover:bg-gemini-border text-[11px] text-zinc-300 hover:text-white text-center font-medium transition touch-manipulation min-h-[36px] flex items-center justify-center"
+              >
+                Files
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  fetchSidePaneData("logs");
+                  setIsSidePaneOpen(true);
+                  if (isMobile) setIsSidebarOpen(false);
+                }}
+                className="px-2 py-1.5 rounded-xl bg-gemini-surface/80 hover:bg-gemini-border text-[11px] text-zinc-300 hover:text-white text-center font-medium transition touch-manipulation min-h-[36px] flex items-center justify-center"
+              >
+                Logs
+              </button>
+            </div>
 
             {/* Live Search */}
             <div className="relative">
@@ -900,7 +937,7 @@ export default function Home() {
                   <div
                     key={c.id}
                     onClick={() => loadConversationMessages(c.id)}
-                    className={`group flex items-center justify-between px-3 py-2.5 rounded-full text-xs cursor-pointer transition touch-manipulation min-h-[40px] ${
+                    className={`group flex items-center justify-between px-3.5 py-2.5 rounded-full text-xs cursor-pointer transition touch-manipulation min-h-[42px] ${
                       isActive ? "bg-gemini-surface text-white font-medium" : "text-zinc-400 hover:bg-gemini-surface hover:text-white"
                     }`}
                   >
@@ -923,27 +960,42 @@ export default function Home() {
               })}
           </div>
 
-          <div className="p-3 border-t border-gemini-border/70 bg-[#161718] flex items-center justify-between">
+          <div className="p-3.5 border-t border-gemini-border/70 bg-[#161718] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
               <span className="text-xs text-zinc-300 font-medium">Nest 24/7 Active</span>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                fetchUsage();
-                setIsUsageModalOpen(true);
-              }}
-              className="text-xs text-blue-400 hover:underline min-h-[36px] flex items-center"
-            >
-              Usage
-            </button>
+            <div className="flex items-center gap-3">
+              {messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleExportConversation();
+                    if (isMobile) setIsSidebarOpen(false);
+                  }}
+                  className="text-xs text-zinc-400 hover:text-white py-1 px-1.5"
+                >
+                  Export
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  fetchUsage();
+                  setIsUsageModalOpen(true);
+                  if (isMobile) setIsSidebarOpen(false);
+                }}
+                className="text-xs text-blue-400 hover:underline min-h-[36px] flex items-center"
+              >
+                Usage
+              </button>
+            </div>
           </div>
         </aside>
 
         {/* Chat Feed */}
         <main className="flex-1 flex flex-col h-full bg-gemini-base relative overflow-hidden">
-          <div ref={chatContainerRef} className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6 scroll-smooth">
+          <div ref={chatContainerRef} className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 sm:py-10 scroll-smooth">
             {/* Welcome view when empty */}
             {messages.length === 0 && (
               <div className="max-w-2xl mx-auto py-8 sm:py-16 flex flex-col items-start">
@@ -954,7 +1006,7 @@ export default function Home() {
                   How can I help you today?
                 </p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
                   {[
                     { title: "Check Nest Environment", desc: "Review RAM, CPU usage, and system services", p: "Inspect the Nest system memory, CPU load, and running services." },
                     { title: "Explore Project Files", desc: "Browse bridge.py, SQLite storage, and system units", p: "Explore the files in /root/slack-agy-bridge and summarize the architecture." },
@@ -965,7 +1017,7 @@ export default function Home() {
                       type="button"
                       key={i}
                       onClick={() => handleSendPrompt(card.p)}
-                      className="p-4 rounded-2xl bg-gemini-surface hover:bg-gemini-border/80 border border-gemini-border/70 text-left transition group touch-manipulation min-h-[80px]"
+                      className="p-5 rounded-2xl bg-gemini-surface hover:bg-gemini-border/80 border border-gemini-border/70 text-left transition group touch-manipulation min-h-[92px] flex flex-col justify-between"
                     >
                       <div className="text-sm font-medium text-white group-hover:text-blue-400 mb-1">{card.title}</div>
                       <div className="text-xs text-zinc-400">{card.desc}</div>
@@ -976,13 +1028,13 @@ export default function Home() {
             )}
 
             {/* Messages */}
-            <div className="max-w-3xl mx-auto w-full space-y-6 pb-36">
+            <div className="max-w-3xl mx-auto w-full space-y-8 sm:space-y-10 pb-44">
               {messages.map((m, idx) => {
                 if (m.role === "user") {
                   return (
                     <div key={m.id} className="flex justify-end">
-                      <div className="max-w-[88%] sm:max-w-[75%] rounded-[24px] bg-gemini-bubble px-4 py-3 text-white shadow-sm group">
-                        <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
+                      <div className="max-w-[90%] sm:max-w-[78%] rounded-[26px] bg-gemini-bubble px-5 py-3.5 text-white shadow-sm group">
+                        <div className="whitespace-pre-wrap text-[15px] sm:text-sm leading-relaxed">{m.content}</div>
                         <div className="flex items-center justify-end gap-2 mt-2 pt-1 border-t border-zinc-700/50 text-[10px] text-zinc-400">
                           <span>{new Date(m.created_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                           <button
@@ -1004,8 +1056,8 @@ export default function Home() {
                   );
                 } else {
                   return (
-                    <div key={m.id} className="flex items-start gap-3 sm:gap-4">
-                      <div className="h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                    <div key={m.id} className="flex items-start gap-4 sm:gap-5">
+                      <div className="h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                         <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
                           <path
                             d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
@@ -1014,9 +1066,9 @@ export default function Home() {
                         </svg>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1.5 text-xs text-zinc-400 font-medium">
+                        <div className="flex items-center justify-between mb-2 text-xs text-zinc-400 font-medium">
                           <div className="flex items-center gap-2">
-                            <span className="text-white">{m.model || "Antigravity"}</span>
+                            <span className="text-white font-medium">{m.model || "Antigravity"}</span>
                             {m.duration && <span className="text-zinc-500 font-mono">· {m.duration}s</span>}
                           </div>
 
@@ -1025,7 +1077,7 @@ export default function Home() {
                             const vCount = m.versions.length;
                             const currentIdx = m.activeVersionIndex ?? vCount - 1;
                             return (
-                              <div className="flex items-center gap-1 bg-gemini-surface/90 border border-gemini-border/70 rounded-full px-2 py-0.5 text-[11px] font-mono text-zinc-300">
+                              <div className="flex items-center gap-1.5 bg-gemini-surface/90 border border-gemini-border/70 rounded-full px-2.5 py-1 text-[11px] font-mono text-zinc-300">
                                 <button
                                   type="button"
                                   disabled={currentIdx === 0}
@@ -1058,14 +1110,14 @@ export default function Home() {
 
                         {/* Collapsible Thought Process */}
                         {m.thinking_content && (
-                          <details className="mb-3 bg-gemini-surface border border-gemini-border rounded-2xl overflow-hidden group">
-                            <summary className="flex items-center gap-2 px-3 py-2 text-xs font-mono text-zinc-400 hover:text-white cursor-pointer select-none">
+                          <details className="mb-4 bg-gemini-surface border border-gemini-border rounded-2xl overflow-hidden group">
+                            <summary className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-mono text-zinc-400 hover:text-white cursor-pointer select-none">
                               <svg className="w-3.5 h-3.5 transform transition-transform group-open:rotate-90 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                               </svg>
                               <span>Thought process</span>
                             </summary>
-                            <div className="p-3 text-xs text-zinc-300 font-mono border-t border-gemini-border bg-[#141416] whitespace-pre-wrap leading-relaxed">
+                            <div className="p-3.5 text-xs text-zinc-300 font-mono border-t border-gemini-border bg-[#141416] whitespace-pre-wrap leading-relaxed">
                               {m.thinking_content}
                             </div>
                           </details>
@@ -1077,13 +1129,13 @@ export default function Home() {
                         />
 
                         {/* Action buttons */}
-                        <div className="flex items-center gap-2 sm:gap-3 mt-3 pt-2 text-xs text-zinc-400">
+                        <div className="flex items-center gap-2 sm:gap-3 mt-4 pt-2.5 text-xs text-zinc-400">
                           {/* Copy */}
                           <button
                             type="button"
                             onClick={() => copyMessageContent(m.id, m.content)}
                             title="Copy text"
-                            className="flex items-center gap-1.5 px-2 py-1 rounded hover:text-white transition touch-manipulation min-h-[36px]"
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:text-white hover:bg-gemini-surface transition touch-manipulation min-h-[38px]"
                           >
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -1096,8 +1148,8 @@ export default function Home() {
                             type="button"
                             onClick={() => speakText(m.id, m.content)}
                             title="Read aloud"
-                            className={`flex items-center gap-1.5 px-2 py-1 rounded transition touch-manipulation min-h-[36px] ${
-                              speakingMessageId === m.id ? "text-blue-400 animate-pulse font-medium" : "hover:text-white"
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition touch-manipulation min-h-[38px] ${
+                              speakingMessageId === m.id ? "text-blue-400 animate-pulse font-medium bg-gemini-surface" : "hover:text-white hover:bg-gemini-surface"
                             }`}
                           >
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -1112,7 +1164,7 @@ export default function Home() {
                               type="button"
                               onClick={() => handleSendPrompt(messages[idx - 1].content, m.id)}
                               title="Retry turn (adds alternate branch)"
-                              className="flex items-center gap-1.5 px-2 py-1 rounded hover:text-white transition touch-manipulation min-h-[36px]"
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:text-white hover:bg-gemini-surface transition touch-manipulation min-h-[38px]"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -1133,8 +1185,8 @@ export default function Home() {
 
               {/* Generating Thinking Indicator */}
               {isGenerating && (
-                <div className="flex items-start gap-3 sm:gap-4">
-                  <div className="h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0 mt-1 animate-pulse">
+                <div className="flex items-start gap-4 sm:gap-5">
+                  <div className="h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 animate-pulse">
                     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
                       <path
                         d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
@@ -1154,11 +1206,11 @@ export default function Home() {
           </div>
 
           {/* Docked Bottom Capsule (Mobile-Optimized) */}
-          <div className="flex-shrink-0 w-full bg-gradient-to-t from-gemini-base via-gemini-base/95 to-transparent pt-3 pb-2 px-3 sm:px-6 safe-bottom z-10">
+          <div className="flex-shrink-0 w-full bg-gradient-to-t from-gemini-base via-gemini-base/95 to-transparent pt-4 pb-3 px-3 sm:px-6 safe-bottom z-10">
             <div className="max-w-3xl mx-auto w-full relative">
               {/* Slash Commands floating popup */}
               {(isSlashMenuOpen || inputPrompt.startsWith("/")) && (
-                <div className="mb-2 bg-[#18191b] border border-gemini-border rounded-2xl shadow-2xl p-2 animate-fadeIn flex flex-wrap gap-1.5 max-w-3xl mx-auto z-20">
+                <div className="mb-2.5 bg-[#18191b] border border-gemini-border rounded-2xl shadow-2xl p-3 animate-fadeIn flex flex-wrap gap-2 max-w-3xl mx-auto z-20">
                   <div className="w-full px-2 py-1 text-[11px] font-medium text-zinc-400 border-b border-gemini-border/50 flex items-center justify-between">
                     <span>Quick Commands</span>
                     <button
@@ -1181,7 +1233,7 @@ export default function Home() {
                       type="button"
                       key={item.cmd}
                       onClick={item.action}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gemini-surface hover:bg-gemini-border border border-gemini-border/60 text-xs text-zinc-300 hover:text-white transition touch-manipulation"
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-gemini-surface hover:bg-gemini-border border border-gemini-border/60 text-xs text-zinc-300 hover:text-white transition touch-manipulation"
                     >
                       <span className="font-mono text-blue-400 font-semibold">{item.cmd}</span>
                       <span className="text-[11px] text-zinc-400">{item.desc}</span>
@@ -1190,7 +1242,7 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="bg-gemini-surface border border-gemini-border rounded-[28px] p-2.5 sm:p-3 shadow-2xl transition-all focus-within:border-blue-500/70">
+              <div className="bg-gemini-surface border border-gemini-border/90 rounded-[32px] p-3 sm:p-3.5 shadow-2xl transition-all focus-within:border-blue-500/80">
                 <textarea
                   ref={textareaRef}
                   rows={1}
@@ -1215,11 +1267,11 @@ export default function Home() {
                     }
                   }}
                   placeholder="Ask Antigravity (or type / for commands)..."
-                  className="w-full bg-transparent text-base sm:text-sm text-white placeholder-zinc-500 px-3 py-1.5 resize-none focus:outline-none max-h-48 overflow-y-auto leading-relaxed"
+                  className="w-full bg-transparent text-base sm:text-sm text-white placeholder-zinc-500 px-3.5 py-2 resize-none focus:outline-none max-h-48 overflow-y-auto leading-relaxed"
                 />
 
-                <div className="flex items-center justify-between pt-1 px-1">
-                  <div className="flex items-center gap-1">
+                <div className="flex items-center justify-between pt-2 px-1">
+                  <div className="flex items-center gap-1.5">
                     {/* Slash Command Quick Button */}
                     <button
                       type="button"
