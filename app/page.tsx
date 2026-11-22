@@ -5,6 +5,14 @@ import { marked } from "marked";
 import hljs from "highlight.js";
 import katex from "katex";
 
+interface AssistantVersion {
+  content: string;
+  thinking_content?: string | null;
+  model?: string | null;
+  duration?: number | null;
+  created_at: number;
+}
+
 interface Message {
   id: string;
   role: "user" | "assistant";
@@ -13,6 +21,8 @@ interface Message {
   model?: string | null;
   duration?: number | null;
   created_at: number;
+  versions?: AssistantVersion[];
+  activeVersionIndex?: number;
 }
 
 interface Conversation {
@@ -63,6 +73,7 @@ export default function Home() {
   const [isUsageModalOpen, setIsUsageModalOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [isSlashMenuOpen, setIsSlashMenuOpen] = useState(false);
 
   // Models & Synchronized Effort
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
@@ -321,20 +332,83 @@ export default function Home() {
     setIsModelDropdownOpen(false);
   };
 
-  const handleSendPrompt = async (promptOverride?: string) => {
+  // Switch between branched turns
+  const handleSwitchVersion = (msgId: string, newIdx: number) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== msgId || !m.versions || !m.versions[newIdx]) return m;
+        const v = m.versions[newIdx];
+        return {
+          ...m,
+          content: v.content,
+          thinking_content: v.thinking_content,
+          model: v.model,
+          duration: v.duration,
+          activeVersionIndex: newIdx,
+        };
+      })
+    );
+  };
+
+  const handleSendPrompt = async (
+    promptOverride?: string,
+    retryAssistantMessageId?: string
+  ) => {
     const textToSend = (promptOverride || inputPrompt).trim();
     if (!textToSend || isGenerating) return;
 
+    // Check for Slash Command execution
+    if (!promptOverride && textToSend.startsWith("/")) {
+      const cmd = textToSend.toLowerCase().split(" ")[0];
+      if (cmd === "/status") {
+        setInputPrompt("");
+        setIsSlashMenuOpen(false);
+        fetchSidePaneData("stats");
+        setIsSidePaneOpen(true);
+        return;
+      } else if (cmd === "/files") {
+        setInputPrompt("");
+        setIsSlashMenuOpen(false);
+        fetchSidePaneData("files");
+        setIsSidePaneOpen(true);
+        return;
+      } else if (cmd === "/logs") {
+        setInputPrompt("");
+        setIsSlashMenuOpen(false);
+        fetchSidePaneData("logs");
+        setIsSidePaneOpen(true);
+        return;
+      } else if (cmd === "/usage") {
+        setInputPrompt("");
+        setIsSlashMenuOpen(false);
+        fetchUsage();
+        setIsUsageModalOpen(true);
+        return;
+      } else if (cmd === "/clear") {
+        setIsSlashMenuOpen(false);
+        handleCreateNewChat();
+        return;
+      } else if (cmd === "/model") {
+        setInputPrompt("");
+        setIsSlashMenuOpen(false);
+        setIsModelDropdownOpen(true);
+        return;
+      }
+    }
+
     setInputPrompt("");
+    setIsSlashMenuOpen(false);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
-    const userMessage: Message = {
-      id: "usr-" + Date.now(),
-      role: "user",
-      content: textToSend,
-      created_at: Math.floor(Date.now() / 1000),
-    };
-    setMessages((prev) => [...prev, userMessage]);
+    if (!retryAssistantMessageId) {
+      const userMessage: Message = {
+        id: "usr-" + Date.now(),
+        role: "user",
+        content: textToSend,
+        created_at: Math.floor(Date.now() / 1000),
+      };
+      setMessages((prev) => [...prev, userMessage]);
+    }
     setIsGenerating(true);
 
     // Safeguard effort & model compatibility
@@ -367,17 +441,51 @@ export default function Home() {
         setActiveConversationId(data.conversation_id);
       }
 
-      const assistantMessage: Message = {
-        id: "ast-" + Date.now(),
-        role: "assistant",
-        content: data.response || "(Task completed, no output returned)",
-        thinking_content: data.thinking,
-        model: data.model || modelToSend,
-        duration: data.duration,
-        created_at: Math.floor(Date.now() / 1000),
-      };
+      if (retryAssistantMessageId) {
+        // Turn Branching: add to versions array
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== retryAssistantMessageId) return m;
+            const currentVersion: AssistantVersion = {
+              content: m.content,
+              thinking_content: m.thinking_content,
+              model: m.model,
+              duration: m.duration,
+              created_at: m.created_at,
+            };
+            const versions = m.versions && m.versions.length > 0 ? m.versions : [currentVersion];
+            const newVersion: AssistantVersion = {
+              content: data.response || "(Task completed, no output returned)",
+              thinking_content: data.thinking,
+              model: data.model || modelToSend,
+              duration: data.duration,
+              created_at: Math.floor(Date.now() / 1000),
+            };
+            const updated = [...versions, newVersion];
+            return {
+              ...m,
+              content: newVersion.content,
+              thinking_content: newVersion.thinking_content,
+              model: newVersion.model,
+              duration: newVersion.duration,
+              versions: updated,
+              activeVersionIndex: updated.length - 1,
+            };
+          })
+        );
+      } else {
+        const assistantMessage: Message = {
+          id: "ast-" + Date.now(),
+          role: "assistant",
+          content: data.response || "(Task completed, no output returned)",
+          thinking_content: data.thinking,
+          model: data.model || modelToSend,
+          duration: data.duration,
+          created_at: Math.floor(Date.now() / 1000),
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+      }
 
-      setMessages((prev) => [...prev, assistantMessage]);
       loadConversations();
       fetchUsage();
     } catch (err: any) {
@@ -412,6 +520,7 @@ export default function Home() {
     setMessages([]);
     setInputPrompt("");
     setIsSidebarOpen(false);
+    setIsSlashMenuOpen(false);
   };
 
   const confirmDeleteConversation = async (cid: string) => {
@@ -905,9 +1014,46 @@ export default function Home() {
                         </svg>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1.5 text-xs text-zinc-400 font-medium">
-                          <span className="text-white">{m.model || "Antigravity"}</span>
-                          {m.duration && <span className="text-zinc-500 font-mono">· {m.duration}s</span>}
+                        <div className="flex items-center justify-between mb-1.5 text-xs text-zinc-400 font-medium">
+                          <div className="flex items-center gap-2">
+                            <span className="text-white">{m.model || "Antigravity"}</span>
+                            {m.duration && <span className="text-zinc-500 font-mono">· {m.duration}s</span>}
+                          </div>
+
+                          {/* Turn Branching Pagination (< 1 / 2 >) */}
+                          {m.versions && m.versions.length > 1 && (() => {
+                            const vCount = m.versions.length;
+                            const currentIdx = m.activeVersionIndex ?? vCount - 1;
+                            return (
+                              <div className="flex items-center gap-1 bg-gemini-surface/90 border border-gemini-border/70 rounded-full px-2 py-0.5 text-[11px] font-mono text-zinc-300">
+                                <button
+                                  type="button"
+                                  disabled={currentIdx === 0}
+                                  onClick={() => handleSwitchVersion(m.id, currentIdx - 1)}
+                                  className="hover:text-white disabled:opacity-30 p-0.5 transition"
+                                  title="Previous version"
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                  </svg>
+                                </button>
+                                <span>
+                                  {currentIdx + 1} / {vCount}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={currentIdx === vCount - 1}
+                                  onClick={() => handleSwitchVersion(m.id, currentIdx + 1)}
+                                  className="hover:text-white disabled:opacity-30 p-0.5 transition"
+                                  title="Next version"
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                  </svg>
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         {/* Collapsible Thought Process */}
@@ -960,12 +1106,12 @@ export default function Home() {
                             <span>{speakingMessageId === m.id ? "Speaking..." : "Audio"}</span>
                           </button>
 
-                          {/* Retry previous prompt */}
+                          {/* Retry with turn branching */}
                           {idx > 0 && messages[idx - 1]?.role === "user" && (
                             <button
                               type="button"
-                              onClick={() => handleSendPrompt(messages[idx - 1].content)}
-                              title="Retry generation"
+                              onClick={() => handleSendPrompt(messages[idx - 1].content, m.id)}
+                              title="Retry turn (adds alternate branch)"
                               className="flex items-center gap-1.5 px-2 py-1 rounded hover:text-white transition touch-manipulation min-h-[36px]"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -1009,7 +1155,41 @@ export default function Home() {
 
           {/* Docked Bottom Capsule (Mobile-Optimized) */}
           <div className="flex-shrink-0 w-full bg-gradient-to-t from-gemini-base via-gemini-base/95 to-transparent pt-3 pb-2 px-3 sm:px-6 safe-bottom z-10">
-            <div className="max-w-3xl mx-auto w-full">
+            <div className="max-w-3xl mx-auto w-full relative">
+              {/* Slash Commands floating popup */}
+              {(isSlashMenuOpen || inputPrompt.startsWith("/")) && (
+                <div className="mb-2 bg-[#18191b] border border-gemini-border rounded-2xl shadow-2xl p-2 animate-fadeIn flex flex-wrap gap-1.5 max-w-3xl mx-auto z-20">
+                  <div className="w-full px-2 py-1 text-[11px] font-medium text-zinc-400 border-b border-gemini-border/50 flex items-center justify-between">
+                    <span>Quick Commands</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsSlashMenuOpen(false)}
+                      className="text-zinc-500 hover:text-zinc-300 text-[10px]"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  {[
+                    { cmd: "/status", desc: "RAM & Services", action: () => { setInputPrompt(""); fetchSidePaneData("stats"); setIsSidePaneOpen(true); setIsSlashMenuOpen(false); } },
+                    { cmd: "/files", desc: "Workspace Tree", action: () => { setInputPrompt(""); fetchSidePaneData("files"); setIsSidePaneOpen(true); setIsSlashMenuOpen(false); } },
+                    { cmd: "/logs", desc: "Live Bridge Logs", action: () => { setInputPrompt(""); fetchSidePaneData("logs"); setIsSidePaneOpen(true); setIsSlashMenuOpen(false); } },
+                    { cmd: "/usage", desc: "Token Quota", action: () => { setInputPrompt(""); fetchUsage(); setIsUsageModalOpen(true); setIsSlashMenuOpen(false); } },
+                    { cmd: "/model", desc: "Switch Model", action: () => { setInputPrompt(""); setIsModelDropdownOpen(true); setIsSlashMenuOpen(false); } },
+                    { cmd: "/clear", desc: "New Chat", action: () => { handleCreateNewChat(); setIsSlashMenuOpen(false); } },
+                  ].map((item) => (
+                    <button
+                      type="button"
+                      key={item.cmd}
+                      onClick={item.action}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gemini-surface hover:bg-gemini-border border border-gemini-border/60 text-xs text-zinc-300 hover:text-white transition touch-manipulation"
+                    >
+                      <span className="font-mono text-blue-400 font-semibold">{item.cmd}</span>
+                      <span className="text-[11px] text-zinc-400">{item.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="bg-gemini-surface border border-gemini-border rounded-[28px] p-2.5 sm:p-3 shadow-2xl transition-all focus-within:border-blue-500/70">
                 <textarea
                   ref={textareaRef}
@@ -1034,12 +1214,24 @@ export default function Home() {
                       handleSendPrompt();
                     }
                   }}
-                  placeholder="Ask Antigravity..."
+                  placeholder="Ask Antigravity (or type / for commands)..."
                   className="w-full bg-transparent text-base sm:text-sm text-white placeholder-zinc-500 px-3 py-1.5 resize-none focus:outline-none max-h-48 overflow-y-auto leading-relaxed"
                 />
 
                 <div className="flex items-center justify-between pt-1 px-1">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
+                    {/* Slash Command Quick Button */}
+                    <button
+                      type="button"
+                      onClick={() => setIsSlashMenuOpen(!isSlashMenuOpen)}
+                      title="Quick Commands"
+                      className={`p-2 rounded-full transition touch-manipulation min-h-[40px] min-w-[40px] flex items-center justify-center font-mono text-sm font-semibold ${
+                        isSlashMenuOpen ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white hover:bg-gemini-border"
+                      }`}
+                    >
+                      /
+                    </button>
+
                     {/* Speech Recognition Mic */}
                     <button
                       type="button"
@@ -1055,7 +1247,7 @@ export default function Home() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                       </svg>
                     </button>
-                    <span className="text-[11px] text-zinc-500 hidden sm:inline">
+                    <span className="text-[11px] text-zinc-500 hidden sm:inline ml-1">
                       Enter to send · Shift+Enter for newline
                     </span>
                   </div>
