@@ -100,6 +100,10 @@ export default function Home() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const isGeneratingRef = useRef(false);
+  const currentPromptAbortControllerRef = useRef<AbortController | null>(null);
+  const conversationAbortControllerRef = useRef<AbortController | null>(null);
+  const activeConversationIdRef = useRef<string | null>(null);
 
   // Detect mobile viewport for accessibility and touch ergonomics
   useEffect(() => {
@@ -155,16 +159,25 @@ export default function Home() {
     return () => document.removeEventListener("click", handleCopy);
   }, []);
 
+  // Escape untrusted HTML entities
+  const escapeHtml = (str: string) =>
+    str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
   // Initialize marked with Full Developer Code Snippet Box
   useEffect(() => {
     const renderer = new marked.Renderer();
     renderer.code = function ({ text, lang }) {
-      const validLang = lang || "text";
+      const validLang = (lang || "text").replace(/[^a-zA-Z0-9_\-\.]/g, "");
       const lines = text.split("\n");
       const lineNumbersHtml = lines.map((_, i) => `<div>${i + 1}</div>`).join("");
       const codeId = "code-" + Math.random().toString(36).substring(2, 9);
 
-      let highlighted = text;
+      let highlighted = "";
       try {
         if (hljs.getLanguage(validLang)) {
           highlighted = hljs.highlight(text, { language: validLang }).value;
@@ -172,7 +185,7 @@ export default function Home() {
           highlighted = hljs.highlightAuto(text).value;
         }
       } catch {
-        highlighted = text;
+        highlighted = escapeHtml(text);
       }
 
       return `
@@ -255,15 +268,25 @@ export default function Home() {
 
   const loadConversationMessages = async (cid: string) => {
     setActiveConversationId(cid);
+    activeConversationIdRef.current = cid;
     setIsSidebarOpen(false);
+
+    if (conversationAbortControllerRef.current) {
+      conversationAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    conversationAbortControllerRef.current = controller;
+
     try {
-      const res = await fetch(`/api/conversations/${cid}`);
-      if (res.ok) {
+      const res = await fetch(`/api/conversations/${cid}`, { signal: controller.signal });
+      if (res.ok && activeConversationIdRef.current === cid) {
         const data = await res.json();
         setMessages(data.messages || []);
       }
-    } catch (e) {
-      console.error("Error loading messages", e);
+    } catch (e: any) {
+      if (e.name !== "AbortError") {
+        console.error("Error loading messages", e);
+      }
     }
   };
 
@@ -396,6 +419,11 @@ export default function Home() {
       }
     }
 
+    // Synchronously guard against rapid double-submits
+    if (isGeneratingRef.current) return;
+    isGeneratingRef.current = true;
+    setIsGenerating(true);
+
     setInputPrompt("");
     setIsSlashMenuOpen(false);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -409,7 +437,6 @@ export default function Home() {
       };
       setMessages((prev) => [...prev, userMessage]);
     }
-    setIsGenerating(true);
 
     // Safeguard effort & model compatibility
     let modelToSend = activeModel;
@@ -420,10 +447,17 @@ export default function Home() {
       modelToSend = "gemini-3.8-flash-medium";
     }
 
+    if (currentPromptAbortControllerRef.current) {
+      currentPromptAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    currentPromptAbortControllerRef.current = controller;
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           prompt: textToSend,
           conversation_id: activeConversationId,
@@ -489,6 +523,10 @@ export default function Home() {
       loadConversations();
       fetchUsage();
     } catch (err: any) {
+      if (err.name === "AbortError") {
+        console.log("Turn aborted by user");
+        return;
+      }
       const errorMessage: Message = {
         id: "err-" + Date.now(),
         role: "assistant",
@@ -497,11 +535,18 @@ export default function Home() {
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
+      isGeneratingRef.current = false;
       setIsGenerating(false);
     }
   };
 
   const handleAbort = async () => {
+    if (currentPromptAbortControllerRef.current) {
+      currentPromptAbortControllerRef.current.abort();
+    }
+    isGeneratingRef.current = false;
+    setIsGenerating(false);
+
     if (!activeConversationId) return;
     try {
       await fetch("/api/chat/abort", {
@@ -509,14 +554,17 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversation_id: activeConversationId }),
       });
-      setIsGenerating(false);
     } catch (e) {
       console.error("Failed to abort turn", e);
     }
   };
 
   const handleCreateNewChat = () => {
+    if (conversationAbortControllerRef.current) {
+      conversationAbortControllerRef.current.abort();
+    }
     setActiveConversationId(null);
+    activeConversationIdRef.current = null;
     setMessages([]);
     setInputPrompt("");
     setIsSidebarOpen(false);
@@ -647,7 +695,12 @@ export default function Home() {
       }
     });
 
-    return marked.parse(processed) as string;
+    let rawHtml = marked.parse(processed) as string;
+    // Sanitize output to strip dangerous script tags and inline event handlers
+    return rawHtml
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+      .replace(/on\w+\s*=\s*(?:["'][^"']*["']|[^\s>]+)/gi, "")
+      .replace(/javascript:/gi, "");
   };
 
   const currentModelName =
