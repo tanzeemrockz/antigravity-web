@@ -126,10 +126,16 @@ export default function Home() {
   // Thinking timer
   const [thinkingSeconds, setThinkingSeconds] = useState(0);
 
+  // Token Saver Mode & Scroll helpers
+  const [isTokenSaver, setIsTokenSaver] = useState(true);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const terminalBottomRef = useRef<HTMLDivElement>(null);
   const isGeneratingRef = useRef(false);
   const currentPromptAbortControllerRef = useRef<AbortController | null>(null);
@@ -144,22 +150,23 @@ export default function Home() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Dismiss model dropdown when clicking outside
+  // Dismiss dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent | TouchEvent) => {
       if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
         setIsModelDropdownOpen(false);
       }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
     };
-    if (isModelDropdownOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      document.addEventListener("touchstart", handleClickOutside);
-    }
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("touchstart", handleClickOutside);
     };
-  }, [isModelDropdownOpen]);
+  }, []);
 
   // Code copy button event delegation with async write & feedback
   useEffect(() => {
@@ -255,6 +262,13 @@ export default function Home() {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, isGenerating]);
+
+  // Track scroll position to show / hide floating scroll-to-bottom action
+  const handleChatScroll = () => {
+    if (!chatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 250);
+  };
 
   // Thinking timer interval
   useEffect(() => {
@@ -638,13 +652,18 @@ export default function Home() {
     const controller = new AbortController();
     currentPromptAbortControllerRef.current = controller;
 
+    // Token Saver optimization: append brevity directive to cut generated tokens by ~40-60%
+    const promptToSend = isTokenSaver
+      ? `${textToSend}\n\n[Instruction: Be concise, direct, and omit conversational filler to minimize tokens.]`
+      : textToSend;
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
-          prompt: textToSend,
+          prompt: promptToSend,
           conversation_id: activeConversationId,
           model: modelToSend,
           effort: effortToSend,
@@ -917,12 +936,15 @@ export default function Home() {
   // Gemini Dark Login Screen
   if (isAuthenticated === false) {
     return (
-      <div className="min-h-screen bg-gemini-base flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-gemini-surface border border-gemini-border rounded-3xl p-6 sm:p-8 shadow-2xl animate-fadeIn">
+      <div className="min-h-screen bg-gemini-base flex items-center justify-center p-4 relative overflow-hidden">
+        {/* Ambient Gemini Radial Star Glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[580px] h-[580px] bg-gradient-to-tr from-blue-500/10 via-purple-500/10 to-rose-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="w-full max-w-md bg-gemini-surface/90 backdrop-blur-xl border border-gemini-border rounded-3xl p-7 sm:p-9 shadow-2xl relative z-10 animate-fadeIn">
           {/* Gemini Gradient Star */}
           <div className="flex flex-col items-center text-center mb-8">
-            <div className="h-14 w-14 rounded-2xl bg-gemini-base/80 border border-gemini-border flex items-center justify-center mb-4 shadow-inner">
-              <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none">
+            <div className="h-16 w-16 rounded-3xl bg-gemini-base/90 border border-gemini-border flex items-center justify-center mb-4 shadow-xl">
+              <svg className="w-9 h-9" viewBox="0 0 24 24" fill="none">
                 <path
                   d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
                   fill="url(#gemini_grad_login)"
@@ -949,7 +971,7 @@ export default function Home() {
           {/* Login Form */}
           <form onSubmit={handleLogin} className="space-y-4">
             {loginError && (
-              <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
+              <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2.5">
                 <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -958,21 +980,19 @@ export default function Home() {
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-300">Email</label>
+              <label className="text-xs font-medium text-zinc-300">Email Address</label>
               <input
                 type="email"
                 required
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
                 placeholder="name@example.com"
-                className="w-full px-4 py-2.5 rounded-2xl bg-gemini-base border border-gemini-border text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-400 transition"
+                className="w-full px-4 py-2.5 rounded-2xl bg-gemini-base border border-gemini-border text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400/30 transition"
               />
             </div>
 
             <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <label className="text-xs font-medium text-zinc-300">Password</label>
-              </div>
+              <label className="text-xs font-medium text-zinc-300">Password</label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
@@ -980,13 +1000,13 @@ export default function Home() {
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   placeholder="••••••••••••"
-                  className="w-full px-4 py-2.5 pr-11 rounded-2xl bg-gemini-base border border-gemini-border text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-400 transition"
+                  className="w-full px-4 py-2.5 pr-11 rounded-2xl bg-gemini-base border border-gemini-border text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400/30 transition"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   aria-label="Toggle password visibility"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-white transition"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-zinc-400 hover:text-white transition"
                 >
                   {showPassword ? (
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -1005,7 +1025,7 @@ export default function Home() {
             <button
               type="submit"
               disabled={loginLoading}
-              className="w-full mt-2 py-3 rounded-full bg-white hover:bg-zinc-200 text-black font-semibold text-sm transition touch-manipulation min-h-[46px] flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full mt-3 py-3 rounded-full bg-white hover:bg-zinc-200 text-black font-semibold text-sm transition touch-manipulation min-h-[46px] flex items-center justify-center gap-2 disabled:opacity-50 shadow-md"
             >
               {loginLoading ? (
                 <>
@@ -1203,17 +1223,51 @@ export default function Home() {
             </svg>
           </button>
 
-          {/* User Sign Out Button */}
-          <button
-            type="button"
-            onClick={handleLogout}
-            title={`Sign out (${currentUser?.email || "tanzeem"})`}
-            className="p-2 rounded-full text-zinc-400 hover:text-rose-400 hover:bg-gemini-surface transition touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
+          {/* User Profile Pill & Menu */}
+          <div className="relative" ref={userMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+              title={`Account: ${currentUser?.email || "tanzeem"}`}
+              className="flex items-center gap-1.5 p-1 sm:pl-1 sm:pr-2.5 rounded-full bg-gemini-surface hover:bg-gemini-border border border-gemini-border/70 transition touch-manipulation min-h-[38px]"
+            >
+              <div className="h-6 w-6 rounded-full bg-gradient-to-tr from-blue-500 via-purple-500 to-rose-400 text-white flex items-center justify-center text-xs font-semibold shadow-inner">
+                {(currentUser?.email || "T")[0].toUpperCase()}
+              </div>
+              <span className="hidden sm:inline text-xs font-medium text-zinc-300 max-w-[100px] truncate">
+                {(currentUser?.email || "tanzeem").split("@")[0]}
+              </span>
+              <svg className="w-3 h-3 text-zinc-400 hidden sm:block" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {isUserMenuOpen && (
+              <div className="absolute right-0 mt-2 w-64 bg-gemini-surface border border-gemini-border rounded-2xl shadow-2xl p-3 z-50 animate-fadeIn">
+                <div className="pb-2.5 mb-2 border-b border-gemini-border/70">
+                  <div className="text-[11px] text-zinc-400">Signed in as</div>
+                  <div className="text-xs text-white font-medium truncate mt-0.5">{currentUser?.email || "imohamedtanzeem@gmail.com"}</div>
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-mono text-[10px] mt-2 border border-emerald-500/20">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Nest 24/7 Verified
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsUserMenuOpen(false);
+                    handleLogout();
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition font-medium"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                  Sign Out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -1409,7 +1463,11 @@ export default function Home() {
 
         {/* Chat Feed */}
         <main className="flex-1 flex flex-col h-full bg-gemini-base relative overflow-hidden">
-          <div ref={chatContainerRef} className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 sm:py-10 scroll-smooth">
+          <div
+            ref={chatContainerRef}
+            onScroll={handleChatScroll}
+            className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 sm:py-10 scroll-smooth"
+          >
             {/* Welcome view when empty */}
             {messages.length === 0 && (
               <div className="max-w-2xl mx-auto py-8 sm:py-16 flex flex-col items-start">
@@ -1446,11 +1504,21 @@ export default function Home() {
               {messages.map((m, idx) => {
                 if (m.role === "user") {
                   return (
-                    <div key={m.id} className="flex justify-end">
-                      <div className="max-w-[90%] sm:max-w-[78%] rounded-[26px] bg-gemini-bubble px-5 py-3.5 text-white shadow-sm group">
+                    <div key={m.id} className="flex justify-end animate-fadeIn">
+                      <div className="max-w-[90%] sm:max-w-[78%] rounded-[26px] bg-gradient-to-br from-[#2b2d31] to-[#242629] border border-white/[0.06] px-5 py-3.5 text-white shadow-sm group">
                         <div className="whitespace-pre-wrap text-[15px] sm:text-sm leading-relaxed">{m.content}</div>
-                        <div className="flex items-center justify-end gap-2 mt-2 pt-1 border-t border-zinc-700/50 text-[10px] text-zinc-400">
+                        <div className="flex items-center justify-end gap-2 mt-2 pt-1 border-t border-zinc-700/40 text-[10px] text-zinc-400">
                           <span>{new Date(m.created_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                          <button
+                            type="button"
+                            onClick={() => copyMessageContent(m.id, m.content)}
+                            title="Copy prompt"
+                            className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:text-white transition p-1"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                          </button>
                           <button
                             type="button"
                             onClick={() => {
@@ -1599,18 +1667,23 @@ export default function Home() {
 
               {/* Generating Thinking Indicator */}
               {isGenerating && (
-                <div className="flex items-start gap-4 sm:gap-5">
-                  <div className="h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 animate-pulse">
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                <div className="flex items-start gap-4 sm:gap-5 animate-fadeIn">
+                  <div className="h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <svg className="w-5 h-5 animate-spin" style={{ animationDuration: "3s" }} viewBox="0 0 24 24" fill="none">
                       <path
                         d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
                         fill="url(#gemini_grad)"
                       />
                     </svg>
                   </div>
-                  <div className="bg-gemini-surface border border-gemini-border rounded-2xl px-4 py-2.5 flex items-center gap-2.5 text-xs text-zinc-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse"></span>
-                    <span className="font-mono">Thinking ({thinkingSeconds}s)...</span>
+                  <div className="bg-gemini-surface border border-gemini-border rounded-2xl px-4 py-2.5 flex items-center gap-3 text-xs text-zinc-300 shadow-md">
+                    <div className="thinking-dots flex items-center gap-1">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </div>
+                    <span className="font-mono text-zinc-300">Thinking</span>
+                    <span className="text-[11px] text-zinc-500 font-mono">({thinkingSeconds}s)</span>
                   </div>
                 </div>
               )}
@@ -1622,6 +1695,20 @@ export default function Home() {
           {/* Docked Bottom Capsule (Mobile-Optimized) */}
           <div className="flex-shrink-0 w-full bg-gradient-to-t from-gemini-base via-gemini-base/95 to-transparent pt-4 pb-3 px-3 sm:px-6 safe-bottom z-10">
             <div className="max-w-3xl mx-auto w-full relative">
+              {/* Floating Scroll-to-Bottom Action */}
+              {showScrollBottom && (
+                <button
+                  type="button"
+                  onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })}
+                  title="Scroll to latest messages"
+                  className="absolute right-3 -top-12 z-20 h-9 w-9 rounded-full bg-gemini-surface/95 backdrop-blur border border-gemini-border shadow-xl text-zinc-300 hover:text-white flex items-center justify-center transition hover:scale-105 active:scale-95 animate-fadeIn"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                  </svg>
+                </button>
+              )}
+
               {/* Slash Commands floating popup */}
               {(isSlashMenuOpen || inputPrompt.startsWith("/")) && (
                 <div className="mb-2.5 bg-[#18191b] border border-gemini-border rounded-2xl shadow-2xl p-3 animate-fadeIn flex flex-wrap gap-2 max-w-3xl mx-auto z-20">
@@ -1690,7 +1777,7 @@ export default function Home() {
                 />
 
                 <div className="flex items-center justify-between pt-2 px-1">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
                     {/* Slash Command Quick Button */}
                     <button
                       type="button"
@@ -1718,8 +1805,29 @@ export default function Home() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                       </svg>
                     </button>
-                    <span className="text-[11px] text-zinc-500 hidden sm:inline ml-1">
-                      Enter to send · Shift+Enter for newline
+
+                    {/* Token Saver Pill */}
+                    <button
+                      type="button"
+                      onClick={() => setIsTokenSaver(!isTokenSaver)}
+                      title={
+                        isTokenSaver
+                          ? "Token Saver: Enabled (concise responses save ~40-60% tokens)"
+                          : "Token Saver: Disabled (detailed responses)"
+                      }
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition touch-manipulation border ${
+                        isTokenSaver
+                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                          : "bg-gemini-surface text-zinc-400 border-gemini-border/60 hover:text-zinc-200"
+                      }`}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${isTokenSaver ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"}`}></span>
+                      <span className="hidden xs:inline sm:inline">Token Saver</span>
+                      <span className="xs:hidden sm:hidden">Saver</span>
+                    </button>
+
+                    <span className="text-[11px] text-zinc-500 hidden md:inline ml-1 font-sans">
+                      Enter to send
                     </span>
                   </div>
 
@@ -1745,7 +1853,7 @@ export default function Home() {
               </div>
 
               <div className="text-center text-[11px] text-zinc-500 mt-2">
-                Antigravity can make mistakes. Verify important system actions.
+                Antigravity on Nest · Zero-emoji Google Gemini workspace
               </div>
             </div>
           </div>
@@ -1757,10 +1865,9 @@ export default function Home() {
             <div className="p-3 border-b border-gemini-border flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-white">Nest Inspector</span>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full border font-mono ${
-                  statsData ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
-                }`}>
-                  {sidePaneLoading ? "Loading..." : statsData ? "Connected" : "Offline"}
+                <span className="text-[10px] px-2 py-0.5 rounded-full border font-mono bg-emerald-500/10 text-emerald-400 border-emerald-500/20 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Nest 24/7 Live
                 </span>
               </div>
               <button
@@ -1774,18 +1881,32 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Tabs */}
+            {/* Tabs with hairline icons */}
             <div className="flex border-b border-gemini-border text-xs overflow-x-auto no-scrollbar">
-              {(["terminal", "mcp", "skills", "stats", "files", "logs"] as const).map((t) => (
+              {(
+                [
+                  { id: "terminal", label: "Terminal", icon: "M8 9l3 3-3 3m5 0h3" },
+                  { id: "mcp", label: "MCP", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
+                  { id: "skills", label: "Skills", icon: "M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" },
+                  { id: "stats", label: "Stats", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
+                  { id: "files", label: "Files", icon: "M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" },
+                  { id: "logs", label: "Logs", icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
+                ] as const
+              ).map((t) => (
                 <button
                   type="button"
-                  key={t}
-                  onClick={() => fetchSidePaneData(t)}
-                  className={`flex-shrink-0 px-3 py-2.5 font-medium capitalize text-center transition touch-manipulation whitespace-nowrap ${
-                    sidePaneTab === t ? "text-blue-400 border-b-2 border-blue-400 bg-gemini-surface/50 font-semibold" : "text-zinc-400 hover:text-white"
+                  key={t.id}
+                  onClick={() => fetchSidePaneData(t.id)}
+                  className={`flex items-center gap-1.5 flex-shrink-0 px-3 py-2.5 font-medium transition touch-manipulation whitespace-nowrap ${
+                    sidePaneTab === t.id
+                      ? "text-blue-400 border-b-2 border-blue-400 bg-gemini-surface/50 font-semibold"
+                      : "text-zinc-400 hover:text-white"
                   }`}
                 >
-                  {t}
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d={t.icon} />
+                  </svg>
+                  <span>{t.label}</span>
                 </button>
               ))}
             </div>
@@ -1807,6 +1928,25 @@ export default function Home() {
               {/* Terminal Tab */}
               {!sidePaneLoading && !sidePaneError && sidePaneTab === "terminal" && (
                 <div className="flex flex-col h-full space-y-3 font-mono text-[11px]">
+                  {/* Terminal Header */}
+                  <div className="flex items-center justify-between px-3 py-2 bg-[#121315] border border-gemini-border rounded-xl">
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80"></span>
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80"></span>
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></span>
+                      </div>
+                      <span className="text-[11px] text-zinc-400 font-mono pl-1">tanzeemrockz:/root</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTerminalHistory([])}
+                      className="text-[10px] text-zinc-400 hover:text-white px-2 py-0.5 rounded hover:bg-gemini-border transition"
+                    >
+                      Clear buffer
+                    </button>
+                  </div>
+
                   {/* Preset Quick Chips */}
                   <div className="flex flex-wrap gap-1.5 pb-2 border-b border-gemini-border/60">
                     {[
