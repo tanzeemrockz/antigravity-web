@@ -140,17 +140,21 @@ export default function Home() {
       const span = btn.querySelector(".copy-text");
       try {
         await navigator.clipboard.writeText(decodeURIComponent(rawCode));
+        btn.classList.add("is-copied");
         if (span) {
           span.textContent = "Copied!";
           setTimeout(() => {
             span.textContent = "Copy code";
+            btn.classList.remove("is-copied");
           }, 2000);
         }
       } catch {
+        btn.classList.add("is-copy-failed");
         if (span) {
           span.textContent = "Failed";
           setTimeout(() => {
             span.textContent = "Copy code";
+            btn.classList.remove("is-copy-failed");
           }, 2000);
         }
       }
@@ -192,7 +196,7 @@ export default function Home() {
         <div class="code-box-wrapper">
           <div class="code-box-header">
             <span class="font-mono text-xs text-blue-400">${validLang}</span>
-            <button type="button" data-code="${encodeURIComponent(
+            <button type="button" aria-label="Copy code" data-code="${encodeURIComponent(
               text
             )}" class="code-copy-btn flex items-center gap-1.5 px-2.5 py-1 rounded hover:bg-gemini-border text-zinc-300 hover:text-white transition text-xs touch-manipulation">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
@@ -1070,7 +1074,7 @@ export default function Home() {
                       type="button"
                       key={i}
                       onClick={() => handleSendPrompt(card.p)}
-                      className="p-5 rounded-2xl bg-gemini-surface hover:bg-gemini-border/80 border border-gemini-border/70 text-left transition group touch-manipulation min-h-[92px] flex flex-col justify-between"
+                      className="p-5 rounded-2xl bg-gemini-surface hover:bg-[#252628] active:scale-[0.99] border border-gemini-border/70 hover:border-[#3c4043] text-left transition-all duration-200 group touch-manipulation min-h-[92px] flex flex-col justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70"
                     >
                       <div className="text-sm font-medium text-white group-hover:text-blue-400 mb-1">{card.title}</div>
                       <div className="text-xs text-zinc-400">{card.desc}</div>
@@ -1295,7 +1299,7 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="bg-gemini-surface border border-gemini-border/90 rounded-[32px] p-3 sm:p-3.5 shadow-2xl transition-all focus-within:border-blue-500/80">
+              <div className="bg-gemini-surface border border-gemini-border rounded-[28px] p-2.5 sm:p-3.5 shadow-[0_8px_32px_rgba(0,0,0,0.28)] transition-[border-color,box-shadow] duration-200 focus-within:border-[#5f8df7] focus-within:shadow-[0_0_0_1px_rgba(138,180,248,0.18),0_8px_32px_rgba(0,0,0,0.28)]">
                 <textarea
                   ref={textareaRef}
                   rows={1}
@@ -1320,7 +1324,9 @@ export default function Home() {
                     }
                   }}
                   placeholder="Ask Antigravity (or type / for commands)..."
-                  className="w-full bg-transparent text-base sm:text-sm text-white placeholder-zinc-500 px-3.5 py-2 resize-none focus:outline-none max-h-48 overflow-y-auto leading-relaxed"
+                  aria-label="Message Antigravity"
+                  enterKeyHint={isMobile ? "enter" : "send"}
+                  className="w-full bg-transparent text-base sm:text-sm text-white placeholder-zinc-500 px-3.5 py-2 resize-none focus:outline-none max-h-48 overflow-y-auto overscroll-contain leading-relaxed"
                 />
 
                 <div className="flex items-center justify-between pt-2 px-1">
