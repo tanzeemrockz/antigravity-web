@@ -57,8 +57,12 @@ export default function Home() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidePaneOpen, setIsSidePaneOpen] = useState(false);
   const [sidePaneTab, setSidePaneTab] = useState<"files" | "stats" | "logs">("stats");
+  const [sidePaneLoading, setSidePaneLoading] = useState(false);
+  const [sidePaneError, setSidePaneError] = useState<string | null>(null);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [isUsageModalOpen, setIsUsageModalOpen] = useState(false);
+  const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
   // Models & Synchronized Effort
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
@@ -72,16 +76,27 @@ export default function Home() {
   const [logsData, setLogsData] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Speech Recognition & TTS
+  // Speech Recognition & TTS & Copy feedback
   const [isListening, setIsListening] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [exportNotice, setExportNotice] = useState(false);
 
   // Thinking timer
   const [thinkingSeconds, setThinkingSeconds] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Detect mobile viewport for accessibility and touch ergonomics
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 1024);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   // Dismiss model dropdown when clicking outside
   useEffect(() => {
@@ -100,20 +115,29 @@ export default function Home() {
     };
   }, [isModelDropdownOpen]);
 
-  // Code copy button event delegation (preserves SVG icons permanently)
+  // Code copy button event delegation with async write & feedback
   useEffect(() => {
-    const handleCopy = (e: MouseEvent) => {
+    const handleCopy = async (e: MouseEvent) => {
       const btn = (e.target as HTMLElement).closest(".code-copy-btn");
       if (!btn) return;
       const rawCode = btn.getAttribute("data-code");
       if (!rawCode) return;
-      navigator.clipboard.writeText(decodeURIComponent(rawCode));
       const span = btn.querySelector(".copy-text");
-      if (span) {
-        span.textContent = "Copied!";
-        setTimeout(() => {
-          span.textContent = "Copy code";
-        }, 2000);
+      try {
+        await navigator.clipboard.writeText(decodeURIComponent(rawCode));
+        if (span) {
+          span.textContent = "Copied!";
+          setTimeout(() => {
+            span.textContent = "Copy code";
+          }, 2000);
+        }
+      } catch {
+        if (span) {
+          span.textContent = "Failed";
+          setTimeout(() => {
+            span.textContent = "Copy code";
+          }, 2000);
+        }
       }
     };
     document.addEventListener("click", handleCopy);
@@ -136,7 +160,7 @@ export default function Home() {
         } else {
           highlighted = hljs.highlightAuto(text).value;
         }
-      } catch (e) {
+      } catch {
         highlighted = text;
       }
 
@@ -146,7 +170,7 @@ export default function Home() {
             <span class="font-mono text-xs text-blue-400">${validLang}</span>
             <button type="button" data-code="${encodeURIComponent(
               text
-            )}" class="code-copy-btn flex items-center gap-1.5 px-2.5 py-1 rounded hover:bg-gemini-border text-zinc-300 hover:text-white transition text-xs">
+            )}" class="code-copy-btn flex items-center gap-1.5 px-2.5 py-1 rounded hover:bg-gemini-border text-zinc-300 hover:text-white transition text-xs touch-manipulation">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
               <span class="copy-text">Copy code</span>
             </button>
@@ -170,9 +194,14 @@ export default function Home() {
     fetchUsage();
   }, []);
 
-  // Scroll to bottom on new messages
+  // Smart scroll: only scroll if already near bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!chatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 200;
+    if (isNearBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, isGenerating]);
 
   // Thinking timer interval
@@ -241,25 +270,28 @@ export default function Home() {
 
   const fetchSidePaneData = async (tab: "files" | "stats" | "logs") => {
     setSidePaneTab(tab);
+    setSidePaneLoading(true);
+    setSidePaneError(null);
     try {
       if (tab === "stats") {
         const res = await fetch("/api/stats");
-        if (res.ok) setStatsData(await res.json());
+        if (!res.ok) throw new Error(`Stats endpoint returned status ${res.status}`);
+        setStatsData(await res.json());
       } else if (tab === "files") {
         const res = await fetch("/api/workspace/files");
-        if (res.ok) {
-          const data = await res.json();
-          setFilesData(data.files || []);
-        }
+        if (!res.ok) throw new Error(`Files endpoint returned status ${res.status}`);
+        const data = await res.json();
+        setFilesData(data.files || []);
       } else if (tab === "logs") {
         const res = await fetch("/api/logs");
-        if (res.ok) {
-          const data = await res.json();
-          setLogsData(data.logs || "");
-        }
+        if (!res.ok) throw new Error(`Logs endpoint returned status ${res.status}`);
+        const data = await res.json();
+        setLogsData(data.logs || "");
       }
-    } catch (err) {
-      console.error("Failed to load sidepane tab:", err);
+    } catch (err: any) {
+      setSidePaneError(err.message || "Failed to load data");
+    } finally {
+      setSidePaneLoading(false);
     }
   };
 
@@ -281,8 +313,10 @@ export default function Home() {
     setActiveModel(modelId);
     if (modelId === "gemini-3.8-flash-high") {
       setActiveEffort("high");
-    } else if (modelId === "gemini-3.8-flash-medium" && activeEffort === "high") {
-      setActiveEffort("medium");
+    } else if (modelId === "gemini-3.8-flash-medium") {
+      if (activeEffort === "high" || activeEffort === "max") {
+        setActiveEffort("medium");
+      }
     }
     setIsModelDropdownOpen(false);
   };
@@ -325,6 +359,10 @@ export default function Home() {
       });
 
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || data.details || `Server returned error (${res.status})`);
+      }
+
       if (data.conversation_id && !activeConversationId) {
         setActiveConversationId(data.conversation_id);
       }
@@ -376,9 +414,8 @@ export default function Home() {
     setIsSidebarOpen(false);
   };
 
-  const handleDeleteConversation = async (cid: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm("Delete this conversation?")) return;
+  const confirmDeleteConversation = async (cid: string) => {
+    setConversationToDelete(null);
     try {
       await fetch(`/api/conversations/${cid}`, { method: "DELETE" });
       if (activeConversationId === cid) handleCreateNewChat();
@@ -411,6 +448,19 @@ export default function Home() {
     a.download = `antigravity-chat-${Date.now()}.md`;
     a.click();
     URL.revokeObjectURL(url);
+
+    setExportNotice(true);
+    setTimeout(() => setExportNotice(false), 2000);
+  };
+
+  const copyMessageContent = async (msgId: string, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedMessageId(msgId);
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    } catch {
+      // ignore
+    }
   };
 
   const toggleSpeechRecognition = () => {
@@ -504,14 +554,22 @@ export default function Home() {
         />
       )}
 
+      {/* Top Notification Toast */}
+      {exportNotice && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#1e1f20] border border-gemini-border text-xs px-3.5 py-1.5 rounded-full shadow-xl text-emerald-400 font-medium animate-fadeIn">
+          Conversation exported to Markdown
+        </div>
+      )}
+
       {/* Top Navigation Header */}
-      <header className="h-14 border-b border-gemini-border/80 flex items-center justify-between px-3 sm:px-4 z-20 bg-gemini-base/95 backdrop-blur safe-top flex-shrink-0">
-        <div className="flex items-center gap-1.5 sm:gap-2">
+      <header className="h-14 border-b border-gemini-border/80 flex items-center justify-between px-2.5 sm:px-4 z-20 bg-gemini-base/95 backdrop-blur safe-top flex-shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2">
           {/* Menu button */}
           <button
+            type="button"
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             aria-label="Toggle menu"
-            className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition"
+            className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
@@ -523,7 +581,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full hover:bg-gemini-surface transition text-left group"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full hover:bg-gemini-surface transition text-left group touch-manipulation min-h-[38px]"
             >
               <div className="h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
@@ -548,7 +606,7 @@ export default function Home() {
 
             {/* Model Dropdown Menu */}
             {isModelDropdownOpen && (
-              <div className="absolute left-0 mt-2 w-72 sm:w-80 bg-gemini-surface border border-gemini-border rounded-2xl shadow-2xl p-2 z-50">
+              <div className="absolute left-0 mt-2 w-72 sm:w-80 bg-gemini-surface border border-gemini-border rounded-2xl shadow-2xl p-2 z-50 animate-fadeIn">
                 <div className="px-3 py-2 text-xs font-medium text-zinc-400 border-b border-gemini-border/60">
                   Select Model
                 </div>
@@ -561,7 +619,7 @@ export default function Home() {
                         role="menuitem"
                         key={m.id}
                         onClick={() => handleSelectModel(m.id)}
-                        className={`w-full p-2 rounded-xl cursor-pointer transition text-left flex items-center justify-between ${
+                        className={`w-full p-2.5 rounded-xl cursor-pointer transition text-left flex items-center justify-between touch-manipulation ${
                           isSelected ? "bg-gemini-border text-white" : "hover:bg-gemini-border/50 text-zinc-300"
                         }`}
                       >
@@ -576,7 +634,7 @@ export default function Home() {
                 </div>
 
                 {/* Reasoning Effort Selector */}
-                <div className="px-3 pt-2 pb-1 border-t border-gemini-border/60 flex items-center justify-between">
+                <div className="px-3 pt-2.5 pb-1 border-t border-gemini-border/60 flex items-center justify-between">
                   <span className="text-xs text-zinc-400">Reasoning Effort</span>
                   <div className="flex items-center gap-1">
                     {["low", "medium", "high", "max"].map((eff) => (
@@ -584,10 +642,10 @@ export default function Home() {
                         type="button"
                         key={eff}
                         onClick={() => handleSelectEffort(eff)}
-                        className={`px-2 py-0.5 rounded text-[11px] font-medium capitalize transition ${
+                        className={`px-2.5 py-1 rounded text-[11px] font-medium capitalize transition touch-manipulation ${
                           activeEffort === eff
                             ? "bg-gemini-blue text-white"
-                            : "text-zinc-400 hover:text-white"
+                            : "text-zinc-400 hover:text-white hover:bg-gemini-border"
                         }`}
                       >
                         {eff === "medium" ? "Med" : eff}
@@ -601,7 +659,7 @@ export default function Home() {
         </div>
 
         {/* Right Header Controls */}
-        <div className="flex items-center gap-1 sm:gap-2">
+        <div className="flex items-center gap-1 sm:gap-1.5">
           {/* Side Pane Drawer Toggle (Files, Stats, Logs) */}
           <button
             type="button"
@@ -610,7 +668,7 @@ export default function Home() {
               setIsSidePaneOpen(!isSidePaneOpen);
             }}
             title="Inspect Environment"
-            className={`p-2 rounded-full transition ${
+            className={`p-2 rounded-full transition touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center ${
               isSidePaneOpen ? "bg-gemini-border text-blue-400" : "text-zinc-400 hover:text-white hover:bg-gemini-surface"
             }`}
           >
@@ -625,7 +683,7 @@ export default function Home() {
               type="button"
               onClick={handleExportConversation}
               title="Export Conversation"
-              className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition"
+              className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
             >
               <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -641,7 +699,7 @@ export default function Home() {
               setIsUsageModalOpen(true);
             }}
             title="View Usage & Limits"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-gemini-surface hover:bg-gemini-border border border-gemini-border/60 text-xs text-zinc-300 transition"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-gemini-surface hover:bg-gemini-border border border-gemini-border/60 text-xs text-zinc-300 transition touch-manipulation min-h-[36px]"
           >
             <span
               className={`h-2 w-2 rounded-full ${
@@ -660,9 +718,9 @@ export default function Home() {
             type="button"
             onClick={handleCreateNewChat}
             title="New Chat"
-            className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition"
+            className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
-            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
           </button>
@@ -673,8 +731,8 @@ export default function Home() {
       <div className="flex-1 flex overflow-hidden relative">
         {/* Collapsible Sidebar */}
         <aside
-          aria-hidden={!isSidebarOpen}
-          inert={!isSidebarOpen ? true : undefined}
+          aria-hidden={isMobile && !isSidebarOpen}
+          inert={isMobile && !isSidebarOpen ? true : undefined}
           className={`fixed lg:static inset-y-0 left-0 z-40 w-72 bg-[#18191a] border-r border-gemini-border flex flex-col transition-transform duration-300 ${
             isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
           }`}
@@ -686,7 +744,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => setIsSidebarOpen(false)}
-                className="p-1 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition"
+                className="p-1 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition min-h-[36px] min-w-[36px] flex items-center justify-center"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -697,7 +755,7 @@ export default function Home() {
             <button
               type="button"
               onClick={handleCreateNewChat}
-              className="w-full flex items-center justify-between px-3.5 py-2 rounded-full bg-gemini-surface hover:bg-gemini-border text-sm font-medium text-white transition"
+              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-full bg-gemini-surface hover:bg-gemini-border text-sm font-medium text-white transition touch-manipulation min-h-[44px]"
             >
               <span className="flex items-center gap-2">
                 <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -733,18 +791,21 @@ export default function Home() {
                   <div
                     key={c.id}
                     onClick={() => loadConversationMessages(c.id)}
-                    className={`group flex items-center justify-between px-3 py-2 rounded-full text-xs cursor-pointer transition ${
+                    className={`group flex items-center justify-between px-3 py-2.5 rounded-full text-xs cursor-pointer transition touch-manipulation min-h-[40px] ${
                       isActive ? "bg-gemini-surface text-white font-medium" : "text-zinc-400 hover:bg-gemini-surface hover:text-white"
                     }`}
                   >
                     <span className="truncate flex-1 mr-2">{c.title || "Untitled"}</span>
                     <button
                       type="button"
-                      onClick={(e) => handleDeleteConversation(c.id, e)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConversationToDelete(c.id);
+                      }}
                       title="Delete"
-                      className="opacity-0 group-hover:opacity-100 p-1 text-zinc-400 hover:text-rose-400 transition"
+                      className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1.5 text-zinc-400 hover:text-rose-400 transition"
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
                     </button>
@@ -764,7 +825,7 @@ export default function Home() {
                 fetchUsage();
                 setIsUsageModalOpen(true);
               }}
-              className="text-xs text-blue-400 hover:underline"
+              className="text-xs text-blue-400 hover:underline min-h-[36px] flex items-center"
             >
               Usage
             </button>
@@ -773,7 +834,7 @@ export default function Home() {
 
         {/* Chat Feed */}
         <main className="flex-1 flex flex-col h-full bg-gemini-base relative overflow-hidden">
-          <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6 scroll-smooth">
+          <div ref={chatContainerRef} className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6 scroll-smooth">
             {/* Welcome view when empty */}
             {messages.length === 0 && (
               <div className="max-w-2xl mx-auto py-8 sm:py-16 flex flex-col items-start">
@@ -795,7 +856,7 @@ export default function Home() {
                       type="button"
                       key={i}
                       onClick={() => handleSendPrompt(card.p)}
-                      className="p-4 rounded-2xl bg-gemini-surface hover:bg-gemini-border/80 border border-gemini-border/70 text-left transition group"
+                      className="p-4 rounded-2xl bg-gemini-surface hover:bg-gemini-border/80 border border-gemini-border/70 text-left transition group touch-manipulation min-h-[80px]"
                     >
                       <div className="text-sm font-medium text-white group-hover:text-blue-400 mb-1">{card.title}</div>
                       <div className="text-xs text-zinc-400">{card.desc}</div>
@@ -811,7 +872,7 @@ export default function Home() {
                 if (m.role === "user") {
                   return (
                     <div key={m.id} className="flex justify-end">
-                      <div className="max-w-[85%] sm:max-w-[75%] rounded-[24px] bg-gemini-bubble px-4 py-3 text-white shadow-sm group">
+                      <div className="max-w-[88%] sm:max-w-[75%] rounded-[24px] bg-gemini-bubble px-4 py-3 text-white shadow-sm group">
                         <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
                         <div className="flex items-center justify-end gap-2 mt-2 pt-1 border-t border-zinc-700/50 text-[10px] text-zinc-400">
                           <span>{new Date(m.created_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
@@ -822,9 +883,9 @@ export default function Home() {
                               textareaRef.current?.focus();
                             }}
                             title="Edit prompt"
-                            className="opacity-0 group-hover:opacity-100 hover:text-white transition"
+                            className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:text-white transition p-1"
                           >
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                             </svg>
                           </button>
@@ -870,18 +931,18 @@ export default function Home() {
                         />
 
                         {/* Action buttons */}
-                        <div className="flex items-center gap-3 mt-3 pt-2 text-xs text-zinc-400">
+                        <div className="flex items-center gap-2 sm:gap-3 mt-3 pt-2 text-xs text-zinc-400">
                           {/* Copy */}
                           <button
                             type="button"
-                            onClick={() => navigator.clipboard.writeText(m.content)}
+                            onClick={() => copyMessageContent(m.id, m.content)}
                             title="Copy text"
-                            className="flex items-center gap-1 hover:text-white transition"
+                            className="flex items-center gap-1.5 px-2 py-1 rounded hover:text-white transition touch-manipulation min-h-[36px]"
                           >
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                             </svg>
-                            <span>Copy</span>
+                            <span>{copiedMessageId === m.id ? "Copied!" : "Copy"}</span>
                           </button>
 
                           {/* Audio TTS */}
@@ -889,7 +950,7 @@ export default function Home() {
                             type="button"
                             onClick={() => speakText(m.id, m.content)}
                             title="Read aloud"
-                            className={`flex items-center gap-1 transition ${
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded transition touch-manipulation min-h-[36px] ${
                               speakingMessageId === m.id ? "text-blue-400 animate-pulse font-medium" : "hover:text-white"
                             }`}
                           >
@@ -905,7 +966,7 @@ export default function Home() {
                               type="button"
                               onClick={() => handleSendPrompt(messages[idx - 1].content)}
                               title="Retry generation"
-                              className="flex items-center gap-1 hover:text-white transition"
+                              className="flex items-center gap-1.5 px-2 py-1 rounded hover:text-white transition touch-manipulation min-h-[36px]"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -984,7 +1045,7 @@ export default function Home() {
                       type="button"
                       onClick={toggleSpeechRecognition}
                       title="Voice input"
-                      className={`p-2 rounded-full transition ${
+                      className={`p-2 rounded-full transition touch-manipulation min-h-[40px] min-w-[40px] flex items-center justify-center ${
                         isListening
                           ? "bg-rose-500 text-white animate-pulse"
                           : "text-zinc-400 hover:text-white hover:bg-gemini-border"
@@ -1004,7 +1065,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => (isGenerating ? handleAbort() : handleSendPrompt())}
-                      className="h-8 w-8 rounded-full bg-white hover:bg-zinc-200 text-black flex items-center justify-center transition shadow-md"
+                      className="h-9 w-9 rounded-full bg-white hover:bg-zinc-200 text-black flex items-center justify-center transition shadow-md touch-manipulation"
                     >
                       {isGenerating ? (
                         <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
@@ -1033,14 +1094,16 @@ export default function Home() {
             <div className="p-3 border-b border-gemini-border flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-white">Nest Inspector</span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                  Online
+                <span className={`text-[10px] px-2 py-0.5 rounded-full border font-mono ${
+                  statsData ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
+                }`}>
+                  {sidePaneLoading ? "Loading..." : statsData ? "Connected" : "Offline"}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => setIsSidePaneOpen(false)}
-                className="p-1 rounded-full text-zinc-400 hover:text-white"
+                className="p-1 rounded-full text-zinc-400 hover:text-white min-h-[36px] min-w-[36px] flex items-center justify-center"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -1055,7 +1118,7 @@ export default function Home() {
                   type="button"
                   key={t}
                   onClick={() => fetchSidePaneData(t)}
-                  className={`flex-1 py-2 font-medium capitalize text-center transition ${
+                  className={`flex-1 py-2.5 font-medium capitalize text-center transition touch-manipulation ${
                     sidePaneTab === t ? "text-blue-400 border-b-2 border-blue-400 bg-gemini-surface/50" : "text-zinc-400 hover:text-white"
                   }`}
                 >
@@ -1066,54 +1129,100 @@ export default function Home() {
 
             {/* Tab Body */}
             <div className="flex-1 overflow-y-auto p-3 text-xs font-mono">
-              {sidePaneTab === "stats" && (
+              {sidePaneLoading && (
+                <div className="text-zinc-500 py-8 text-center animate-pulse">
+                  Fetching {sidePaneTab}...
+                </div>
+              )}
+
+              {sidePaneError && (
+                <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 text-rose-400 text-xs mb-3">
+                  {sidePaneError}
+                </div>
+              )}
+
+              {!sidePaneLoading && !sidePaneError && sidePaneTab === "stats" && (
                 <div className="space-y-3">
                   <div className="bg-gemini-surface border border-gemini-border rounded-xl p-3">
                     <div className="text-zinc-400 text-[11px] mb-1">Server Host</div>
-                    <div className="text-white font-semibold">tanzeemrockz@hackclub.app</div>
+                    <div className="text-white font-semibold">{statsData?.host || "tanzeemrockz@hackclub.app"}</div>
                   </div>
                   <div className="bg-gemini-surface border border-gemini-border rounded-xl p-3">
                     <div className="text-zinc-400 text-[11px] mb-1">RAM (2048 MB limit)</div>
-                    <div className="text-emerald-400 font-semibold">{statsData?.memory_used || "120 MB / 2048 MB"}</div>
+                    <div className="text-emerald-400 font-semibold">{statsData?.memory_used || "Available via active connection"}</div>
                   </div>
                   <div className="bg-gemini-surface border border-gemini-border rounded-xl p-3">
                     <div className="text-zinc-400 text-[11px] mb-1">Systemd Services</div>
                     <div className="text-white space-y-1 text-[11px]">
-                      <div>slack-bridge.service: active (running)</div>
-                      <div>slack-dashboard.service: active (running)</div>
-                      <div>cloudflared-tunnel.service: active (running)</div>
+                      <div>slack-bridge.service: active</div>
+                      <div>slack-dashboard.service: active</div>
+                      <div>cloudflared-tunnel.service: active</div>
                     </div>
                   </div>
                 </div>
               )}
 
-              {sidePaneTab === "files" && (
+              {!sidePaneLoading && !sidePaneError && sidePaneTab === "files" && (
                 <div className="space-y-1">
                   {filesData.length === 0 ? (
-                    <div className="text-zinc-500 py-4 text-center">Loading files...</div>
+                    <div className="text-zinc-500 py-6 text-center">No files in directory.</div>
                   ) : (
                     filesData.map((f, i) => (
-                      <div key={i} className="flex items-center gap-2 p-1.5 rounded hover:bg-gemini-surface text-zinc-300">
-                        <svg className="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <div key={i} className="flex items-center gap-2 p-2 rounded hover:bg-gemini-surface text-zinc-300">
+                        <svg className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                         </svg>
                         <span className="truncate flex-1">{f.name || f}</span>
-                        <span className="text-[10px] text-zinc-500">{f.size || ""}</span>
+                        <span className="text-[10px] text-zinc-500 font-mono">{f.size || ""}</span>
                       </div>
                     ))
                   )}
                 </div>
               )}
 
-              {sidePaneTab === "logs" && (
-                <div className="bg-[#121214] p-2 rounded-xl border border-gemini-border text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed max-h-full overflow-x-auto">
-                  {logsData || "Waiting for recent system logs..."}
+              {!sidePaneLoading && !sidePaneError && sidePaneTab === "logs" && (
+                <div className="bg-[#121214] p-2.5 rounded-xl border border-gemini-border text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed max-h-full overflow-x-auto">
+                  {logsData || "No recent system logs available."}
                 </div>
               )}
             </div>
           </aside>
         )}
       </div>
+
+      {/* In-App Delete Confirmation Modal */}
+      {conversationToDelete && (
+        <div
+          onClick={() => setConversationToDelete(null)}
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-gemini-surface border border-gemini-border rounded-2xl w-full max-w-sm p-5 shadow-2xl flex flex-col gap-3 cursor-default animate-fadeIn"
+          >
+            <h3 className="text-sm font-semibold text-white">Delete chat?</h3>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              This will permanently delete this conversation from your history. This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2 pt-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setConversationToDelete(null)}
+                className="px-3.5 py-1.5 rounded-full text-zinc-300 hover:text-white hover:bg-gemini-border transition touch-manipulation min-h-[36px]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmDeleteConversation(conversationToDelete)}
+                className="px-4 py-1.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-medium transition touch-manipulation min-h-[36px]"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Usage Limit & Quota Modal */}
       {isUsageModalOpen && usageData && (
@@ -1123,7 +1232,7 @@ export default function Home() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-gemini-surface border border-gemini-border rounded-3xl w-full max-w-lg p-5 shadow-2xl flex flex-col gap-4 cursor-default"
+            className="bg-gemini-surface border border-gemini-border rounded-3xl w-full max-w-lg p-5 shadow-2xl flex flex-col gap-4 cursor-default animate-fadeIn"
           >
             <div className="flex items-center justify-between border-b border-gemini-border pb-3">
               <div className="flex items-center gap-2">
@@ -1133,7 +1242,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => setIsUsageModalOpen(false)}
-                className="p-1 rounded-full text-zinc-400 hover:text-white"
+                className="p-1 rounded-full text-zinc-400 hover:text-white min-h-[36px] min-w-[36px] flex items-center justify-center"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -1211,7 +1320,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => setIsUsageModalOpen(false)}
-                className="px-4 py-2 rounded-full bg-white text-black font-medium text-xs hover:bg-zinc-200 transition"
+                className="px-4 py-2 rounded-full bg-white text-black font-medium text-xs hover:bg-zinc-200 transition touch-manipulation min-h-[36px]"
               >
                 Close
               </button>
