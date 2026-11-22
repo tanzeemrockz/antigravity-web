@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { marked } from "marked";
 import hljs from "highlight.js";
+import katex from "katex";
 
 interface Message {
   id: string;
@@ -55,11 +56,11 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidePaneOpen, setIsSidePaneOpen] = useState(false);
-  const [sidePaneTab, setSidePaneTab] = useState<"files" | "stats" | "logs">("files");
+  const [sidePaneTab, setSidePaneTab] = useState<"files" | "stats" | "logs">("stats");
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [isUsageModalOpen, setIsUsageModalOpen] = useState(false);
 
-  // Models & Effort
+  // Models & Synchronized Effort
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
   const [activeModel, setActiveModel] = useState("gemini-3.8-flash-medium");
   const [activeEffort, setActiveEffort] = useState("medium");
@@ -71,14 +72,53 @@ export default function Home() {
   const [logsData, setLogsData] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Speech Recognition
+  // Speech Recognition & TTS
   const [isListening, setIsListening] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
 
   // Thinking timer
   const [thinkingSeconds, setThinkingSeconds] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Dismiss model dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setIsModelDropdownOpen(false);
+      }
+    };
+    if (isModelDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("touchstart", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, [isModelDropdownOpen]);
+
+  // Code copy button event delegation (preserves SVG icons permanently)
+  useEffect(() => {
+    const handleCopy = (e: MouseEvent) => {
+      const btn = (e.target as HTMLElement).closest(".code-copy-btn");
+      if (!btn) return;
+      const rawCode = btn.getAttribute("data-code");
+      if (!rawCode) return;
+      navigator.clipboard.writeText(decodeURIComponent(rawCode));
+      const span = btn.querySelector(".copy-text");
+      if (span) {
+        span.textContent = "Copied!";
+        setTimeout(() => {
+          span.textContent = "Copy code";
+        }, 2000);
+      }
+    };
+    document.addEventListener("click", handleCopy);
+    return () => document.removeEventListener("click", handleCopy);
+  }, []);
 
   // Initialize marked with Full Developer Code Snippet Box
   useEffect(() => {
@@ -104,11 +144,11 @@ export default function Home() {
         <div class="code-box-wrapper">
           <div class="code-box-header">
             <span class="font-mono text-xs text-blue-400">${validLang}</span>
-            <button onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(
+            <button type="button" data-code="${encodeURIComponent(
               text
-            )}')); this.innerText = 'Copied'; setTimeout(() => this.innerText = 'Copy code', 2000)" class="flex items-center gap-1 px-2.5 py-1 rounded hover:bg-gemini-border text-zinc-300 hover:text-white transition text-xs">
+            )}" class="code-copy-btn flex items-center gap-1.5 px-2.5 py-1 rounded hover:bg-gemini-border text-zinc-300 hover:text-white transition text-xs">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-              <span>Copy code</span>
+              <span class="copy-text">Copy code</span>
             </button>
           </div>
           <div class="code-box-body">
@@ -199,6 +239,54 @@ export default function Home() {
     }
   };
 
+  const fetchSidePaneData = async (tab: "files" | "stats" | "logs") => {
+    setSidePaneTab(tab);
+    try {
+      if (tab === "stats") {
+        const res = await fetch("/api/stats");
+        if (res.ok) setStatsData(await res.json());
+      } else if (tab === "files") {
+        const res = await fetch("/api/workspace/files");
+        if (res.ok) {
+          const data = await res.json();
+          setFilesData(data.files || []);
+        }
+      } else if (tab === "logs") {
+        const res = await fetch("/api/logs");
+        if (res.ok) {
+          const data = await res.json();
+          setLogsData(data.logs || "");
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load sidepane tab:", err);
+    }
+  };
+
+  // Synchronized Model & Effort Selection
+  const handleSelectEffort = (eff: string) => {
+    setActiveEffort(eff);
+    if (eff === "high" || eff === "max") {
+      if (activeModel === "gemini-3.8-flash-medium") {
+        setActiveModel("gemini-3.8-flash-high");
+      }
+    } else if (eff === "low" || eff === "medium") {
+      if (activeModel === "gemini-3.8-flash-high") {
+        setActiveModel("gemini-3.8-flash-medium");
+      }
+    }
+  };
+
+  const handleSelectModel = (modelId: string) => {
+    setActiveModel(modelId);
+    if (modelId === "gemini-3.8-flash-high") {
+      setActiveEffort("high");
+    } else if (modelId === "gemini-3.8-flash-medium" && activeEffort === "high") {
+      setActiveEffort("medium");
+    }
+    setIsModelDropdownOpen(false);
+  };
+
   const handleSendPrompt = async (promptOverride?: string) => {
     const textToSend = (promptOverride || inputPrompt).trim();
     if (!textToSend || isGenerating) return;
@@ -215,6 +303,15 @@ export default function Home() {
     setMessages((prev) => [...prev, userMessage]);
     setIsGenerating(true);
 
+    // Safeguard effort & model compatibility
+    let modelToSend = activeModel;
+    let effortToSend = activeEffort;
+    if (activeModel === "gemini-3.8-flash-medium" && (activeEffort === "high" || activeEffort === "max")) {
+      modelToSend = "gemini-3.8-flash-high";
+    } else if (activeModel === "gemini-3.8-flash-high" && (activeEffort === "low" || activeEffort === "medium")) {
+      modelToSend = "gemini-3.8-flash-medium";
+    }
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -222,8 +319,8 @@ export default function Home() {
         body: JSON.stringify({
           prompt: textToSend,
           conversation_id: activeConversationId,
-          model: activeModel,
-          effort: activeEffort,
+          model: modelToSend,
+          effort: effortToSend,
         }),
       });
 
@@ -237,7 +334,7 @@ export default function Home() {
         role: "assistant",
         content: data.response || "(Task completed, no output returned)",
         thinking_content: data.thinking,
-        model: data.model || activeModel,
+        model: data.model || modelToSend,
         duration: data.duration,
         created_at: Math.floor(Date.now() / 1000),
       };
@@ -291,6 +388,31 @@ export default function Home() {
     }
   };
 
+  const handleExportConversation = () => {
+    if (messages.length === 0) return;
+    const title = conversations.find((c) => c.id === activeConversationId)?.title || "Antigravity Chat";
+    let md = `# ${title}\n\nExported on ${new Date().toLocaleString()}\n\n---\n\n`;
+    messages.forEach((m) => {
+      if (m.role === "user") {
+        md += `### User\n${m.content}\n\n`;
+      } else {
+        md += `### Antigravity (${m.model || "Gemini"})\n`;
+        if (m.thinking_content) {
+          md += `> **Thought Process:**\n> ${m.thinking_content.replace(/\n/g, "\n> ")}\n\n`;
+        }
+        md += `${m.content}\n\n`;
+      }
+    });
+
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `antigravity-chat-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const toggleSpeechRecognition = () => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -304,39 +426,77 @@ export default function Home() {
       return;
     }
 
-    const rec = new SpeechRecognition();
-    rec.continuous = false;
-    rec.interimResults = false;
-    rec.lang = "en-US";
+    try {
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = "en-US";
 
-    rec.onstart = () => setIsListening(true);
-    rec.onresult = (e: any) => {
-      const transcript = e.results[0][0].transcript;
-      setInputPrompt((prev) => (prev ? prev + " " : "") + transcript);
-    };
-    rec.onerror = () => setIsListening(false);
-    rec.onend = () => setIsListening(false);
+      rec.onstart = () => setIsListening(true);
+      rec.onresult = (e: any) => {
+        const transcript = e.results[0][0].transcript;
+        setInputPrompt((prev) => (prev ? prev + " " : "") + transcript);
+      };
+      rec.onerror = () => setIsListening(false);
+      rec.onend = () => setIsListening(false);
 
-    rec.start();
+      rec.start();
+    } catch (err) {
+      setIsListening(false);
+      console.error("Speech recognition error:", err);
+    }
   };
 
-  const speakText = (text: string) => {
-    if (window.speechSynthesis.speaking) {
+  const speakText = (msgId: string, text: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+    if (window.speechSynthesis.speaking && speakingMessageId === msgId) {
       window.speechSynthesis.cancel();
+      setSpeakingMessageId(null);
       return;
     }
+
+    window.speechSynthesis.cancel();
     const cleanText = text.replace(/```[\s\S]*?```/g, "Code block omitted");
     const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.rate = 1.0;
+    utterance.onend = () => setSpeakingMessageId(null);
+    utterance.onerror = () => setSpeakingMessageId(null);
+
+    setSpeakingMessageId(msgId);
     window.speechSynthesis.speak(utterance);
+  };
+
+  // Render LaTeX math + Markdown
+  const renderFormattedMarkdown = (content: string) => {
+    if (!content) return "";
+    let processed = content;
+    // Replace block math $$...$$
+    processed = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
+      try {
+        return `<div class="katex-block my-2 text-center overflow-x-auto py-1">${katex.renderToString(math.trim(), { displayMode: true, throwOnError: false })}</div>`;
+      } catch {
+        return `$$${math}$$`;
+      }
+    });
+    // Replace inline math $...$
+    processed = processed.replace(/(?<!\\)\$([^\$\n]+?)\$/g, (_, math) => {
+      try {
+        return katex.renderToString(math.trim(), { displayMode: false, throwOnError: false });
+      } catch {
+        return `$${math}$`;
+      }
+    });
+
+    return marked.parse(processed) as string;
   };
 
   const currentModelName =
     availableModels.find((m) => m.id === activeModel)?.short_name || "Gemini 3.8 Flash";
 
   return (
-    <div className="flex flex-col h-full bg-gemini-base text-[#e3e3e3] antialiased">
-      {/* Mobile Drawer Backdrop */}
+    <div className="flex flex-col h-full bg-gemini-base text-[#e3e3e3] antialiased select-auto">
+      {/* Mobile Sidebar Backdrop */}
       {isSidebarOpen && (
         <div
           onClick={() => setIsSidebarOpen(false)}
@@ -346,7 +506,7 @@ export default function Home() {
 
       {/* Top Navigation Header */}
       <header className="h-14 border-b border-gemini-border/80 flex items-center justify-between px-3 sm:px-4 z-20 bg-gemini-base/95 backdrop-blur safe-top flex-shrink-0">
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Menu button */}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -359,10 +519,11 @@ export default function Home() {
           </button>
 
           {/* Model Switcher Dropdown */}
-          <div className="relative">
+          <div className="relative" ref={modelDropdownRef}>
             <button
+              type="button"
               onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-gemini-surface transition text-left group"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full hover:bg-gemini-surface transition text-left group"
             >
               <div className="h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
@@ -379,7 +540,7 @@ export default function Home() {
                   </defs>
                 </svg>
               </div>
-              <span className="text-sm font-medium text-white tracking-tight">{currentModelName}</span>
+              <span className="text-xs sm:text-sm font-medium text-white tracking-tight">{currentModelName}</span>
               <svg className="w-3.5 h-3.5 text-zinc-400 group-hover:text-white transition-transform" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
@@ -391,17 +552,16 @@ export default function Home() {
                 <div className="px-3 py-2 text-xs font-medium text-zinc-400 border-b border-gemini-border/60">
                   Select Model
                 </div>
-                <div className="p-1 space-y-1">
+                <div className="p-1 space-y-1" role="menu">
                   {availableModels.map((m) => {
                     const isSelected = m.id === activeModel;
                     return (
-                      <div
+                      <button
+                        type="button"
+                        role="menuitem"
                         key={m.id}
-                        onClick={() => {
-                          setActiveModel(m.id);
-                          setIsModelDropdownOpen(false);
-                        }}
-                        className={`p-2 rounded-xl cursor-pointer transition text-left flex items-center justify-between ${
+                        onClick={() => handleSelectModel(m.id)}
+                        className={`w-full p-2 rounded-xl cursor-pointer transition text-left flex items-center justify-between ${
                           isSelected ? "bg-gemini-border text-white" : "hover:bg-gemini-border/50 text-zinc-300"
                         }`}
                       >
@@ -410,7 +570,7 @@ export default function Home() {
                           <div className="text-[11px] text-zinc-400">{m.description}</div>
                         </div>
                         {isSelected && <span className="h-2 w-2 rounded-full bg-blue-400 ml-2"></span>}
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -421,8 +581,9 @@ export default function Home() {
                   <div className="flex items-center gap-1">
                     {["low", "medium", "high", "max"].map((eff) => (
                       <button
+                        type="button"
                         key={eff}
-                        onClick={() => setActiveEffort(eff)}
+                        onClick={() => handleSelectEffort(eff)}
                         className={`px-2 py-0.5 rounded text-[11px] font-medium capitalize transition ${
                           activeEffort === eff
                             ? "bg-gemini-blue text-white"
@@ -440,9 +601,41 @@ export default function Home() {
         </div>
 
         {/* Right Header Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
+          {/* Side Pane Drawer Toggle (Files, Stats, Logs) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (!isSidePaneOpen) fetchSidePaneData(sidePaneTab);
+              setIsSidePaneOpen(!isSidePaneOpen);
+            }}
+            title="Inspect Environment"
+            className={`p-2 rounded-full transition ${
+              isSidePaneOpen ? "bg-gemini-border text-blue-400" : "text-zinc-400 hover:text-white hover:bg-gemini-surface"
+            }`}
+          >
+            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+            </svg>
+          </button>
+
+          {/* Export conversation */}
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={handleExportConversation}
+              title="Export Conversation"
+              className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition"
+            >
+              <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </button>
+          )}
+
           {/* Usage Monitor Pill */}
           <button
+            type="button"
             onClick={() => {
               fetchUsage();
               setIsUsageModalOpen(true);
@@ -464,11 +657,12 @@ export default function Home() {
 
           {/* New Chat Button */}
           <button
+            type="button"
             onClick={handleCreateNewChat}
             title="New Chat"
             className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
           </button>
@@ -479,12 +673,29 @@ export default function Home() {
       <div className="flex-1 flex overflow-hidden relative">
         {/* Collapsible Sidebar */}
         <aside
+          aria-hidden={!isSidebarOpen}
+          inert={!isSidebarOpen ? true : undefined}
           className={`fixed lg:static inset-y-0 left-0 z-40 w-72 bg-[#18191a] border-r border-gemini-border flex flex-col transition-transform duration-300 ${
             isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
           }`}
         >
           <div className="p-3 border-b border-gemini-border/70 flex flex-col gap-2.5">
+            {/* Mobile Header with close button */}
+            <div className="flex items-center justify-between lg:hidden pb-1">
+              <span className="text-xs font-semibold text-zinc-400">Conversations</span>
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(false)}
+                className="p-1 rounded-full text-zinc-400 hover:text-white hover:bg-gemini-surface transition"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
             <button
+              type="button"
               onClick={handleCreateNewChat}
               className="w-full flex items-center justify-between px-3.5 py-2 rounded-full bg-gemini-surface hover:bg-gemini-border text-sm font-medium text-white transition"
             >
@@ -494,7 +705,7 @@ export default function Home() {
                 </svg>
                 New Chat
               </span>
-              <span className="text-[11px] text-zinc-400 font-mono">Ctrl+K</span>
+              <span className="hidden lg:inline text-[11px] text-zinc-400 font-mono">Ctrl+K</span>
             </button>
 
             {/* Live Search */}
@@ -513,7 +724,7 @@ export default function Home() {
           </div>
 
           {/* Conversations list */}
-          <div className="flex-1 overflow-y-auto p-2 space-y-2">
+          <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
             {conversations
               .filter((c) => c.title.toLowerCase().includes(searchQuery.toLowerCase()))
               .map((c) => {
@@ -528,6 +739,7 @@ export default function Home() {
                   >
                     <span className="truncate flex-1 mr-2">{c.title || "Untitled"}</span>
                     <button
+                      type="button"
                       onClick={(e) => handleDeleteConversation(c.id, e)}
                       title="Delete"
                       className="opacity-0 group-hover:opacity-100 p-1 text-zinc-400 hover:text-rose-400 transition"
@@ -546,7 +758,14 @@ export default function Home() {
               <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
               <span className="text-xs text-zinc-300 font-medium">Nest 24/7 Active</span>
             </div>
-            <button onClick={() => setIsUsageModalOpen(true)} className="text-xs text-blue-400 hover:underline">
+            <button
+              type="button"
+              onClick={() => {
+                fetchUsage();
+                setIsUsageModalOpen(true);
+              }}
+              className="text-xs text-blue-400 hover:underline"
+            >
               Usage
             </button>
           </div>
@@ -554,14 +773,14 @@ export default function Home() {
 
         {/* Chat Feed */}
         <main className="flex-1 flex flex-col h-full bg-gemini-base relative overflow-hidden">
-          <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-6 scroll-smooth">
+          <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6 scroll-smooth">
             {/* Welcome view when empty */}
             {messages.length === 0 && (
-              <div className="max-w-2xl mx-auto py-12 sm:py-20 flex flex-col items-start">
+              <div className="max-w-2xl mx-auto py-8 sm:py-16 flex flex-col items-start">
                 <h1 className="text-3xl sm:text-5xl font-semibold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-300 to-rose-300 mb-2">
                   Hello, Tanzeem
                 </h1>
-                <p className="text-xl sm:text-3xl text-zinc-400 font-normal mb-8 sm:mb-12">
+                <p className="text-xl sm:text-3xl text-zinc-400 font-normal mb-6 sm:mb-10">
                   How can I help you today?
                 </p>
 
@@ -573,6 +792,7 @@ export default function Home() {
                     { title: "Write Python Automation", desc: "Generate script with cron schedule and error handling", p: "Write a clean Python script to automate database backups." },
                   ].map((card, i) => (
                     <button
+                      type="button"
                       key={i}
                       onClick={() => handleSendPrompt(card.p)}
                       className="p-4 rounded-2xl bg-gemini-surface hover:bg-gemini-border/80 border border-gemini-border/70 text-left transition group"
@@ -587,7 +807,7 @@ export default function Home() {
 
             {/* Messages */}
             <div className="max-w-3xl mx-auto w-full space-y-6 pb-36">
-              {messages.map((m) => {
+              {messages.map((m, idx) => {
                 if (m.role === "user") {
                   return (
                     <div key={m.id} className="flex justify-end">
@@ -596,6 +816,7 @@ export default function Home() {
                         <div className="flex items-center justify-end gap-2 mt-2 pt-1 border-t border-zinc-700/50 text-[10px] text-zinc-400">
                           <span>{new Date(m.created_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                           <button
+                            type="button"
                             onClick={() => {
                               setInputPrompt(m.content);
                               textareaRef.current?.focus();
@@ -645,12 +866,14 @@ export default function Home() {
 
                         <div
                           className="prose-gemini"
-                          dangerouslySetInnerHTML={{ __html: marked.parse(m.content || "") as string }}
+                          dangerouslySetInnerHTML={{ __html: renderFormattedMarkdown(m.content || "") }}
                         />
 
                         {/* Action buttons */}
                         <div className="flex items-center gap-3 mt-3 pt-2 text-xs text-zinc-400">
+                          {/* Copy */}
                           <button
+                            type="button"
                             onClick={() => navigator.clipboard.writeText(m.content)}
                             title="Copy text"
                             className="flex items-center gap-1 hover:text-white transition"
@@ -660,16 +883,37 @@ export default function Home() {
                             </svg>
                             <span>Copy</span>
                           </button>
+
+                          {/* Audio TTS */}
                           <button
-                            onClick={() => speakText(m.content)}
+                            type="button"
+                            onClick={() => speakText(m.id, m.content)}
                             title="Read aloud"
-                            className="flex items-center gap-1 hover:text-white transition"
+                            className={`flex items-center gap-1 transition ${
+                              speakingMessageId === m.id ? "text-blue-400 animate-pulse font-medium" : "hover:text-white"
+                            }`}
                           >
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                             </svg>
-                            <span>Audio</span>
+                            <span>{speakingMessageId === m.id ? "Speaking..." : "Audio"}</span>
                           </button>
+
+                          {/* Retry previous prompt */}
+                          {idx > 0 && messages[idx - 1]?.role === "user" && (
+                            <button
+                              type="button"
+                              onClick={() => handleSendPrompt(messages[idx - 1].content)}
+                              title="Retry generation"
+                              className="flex items-center gap-1 hover:text-white transition"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                              <span>Retry</span>
+                            </button>
+                          )}
+
                           <span className="ml-auto text-[10px] text-zinc-500 font-mono">
                             {new Date(m.created_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </span>
@@ -703,7 +947,7 @@ export default function Home() {
           </div>
 
           {/* Docked Bottom Capsule (Mobile-Optimized) */}
-          <div className="flex-shrink-0 w-full bg-gradient-to-t from-gemini-base via-gemini-base/95 to-transparent pt-4 pb-2 px-3 sm:px-6 safe-bottom z-10">
+          <div className="flex-shrink-0 w-full bg-gradient-to-t from-gemini-base via-gemini-base/95 to-transparent pt-3 pb-2 px-3 sm:px-6 safe-bottom z-10">
             <div className="max-w-3xl mx-auto w-full">
               <div className="bg-gemini-surface border border-gemini-border rounded-[28px] p-2.5 sm:p-3 shadow-2xl transition-all focus-within:border-blue-500/70">
                 <textarea
@@ -716,7 +960,15 @@ export default function Home() {
                     e.target.style.height = Math.min(e.target.scrollHeight, 180) + "px";
                   }}
                   onKeyDown={(e) => {
+                    const isTouchOrMobile =
+                      typeof window !== "undefined" &&
+                      ("ontouchstart" in window || window.innerWidth < 768);
+
                     if (e.key === "Enter" && !e.shiftKey) {
+                      if (isTouchOrMobile) {
+                        // Allow mobile virtual keyboard Enter to insert a newline
+                        return;
+                      }
                       e.preventDefault();
                       handleSendPrompt();
                     }
@@ -729,6 +981,7 @@ export default function Home() {
                   <div className="flex items-center gap-1.5">
                     {/* Speech Recognition Mic */}
                     <button
+                      type="button"
                       onClick={toggleSpeechRecognition}
                       title="Voice input"
                       className={`p-2 rounded-full transition ${
@@ -749,6 +1002,7 @@ export default function Home() {
                   <div className="flex items-center gap-1.5">
                     {/* Send / Stop button */}
                     <button
+                      type="button"
                       onClick={() => (isGenerating ? handleAbort() : handleSendPrompt())}
                       className="h-8 w-8 rounded-full bg-white hover:bg-zinc-200 text-black flex items-center justify-center transition shadow-md"
                     >
@@ -772,18 +1026,115 @@ export default function Home() {
             </div>
           </div>
         </main>
+
+        {/* Auxiliary Side Pane (Files, Stats, Logs) */}
+        {isSidePaneOpen && (
+          <aside className="fixed inset-y-0 right-0 z-40 w-80 sm:w-96 bg-[#18191a] border-l border-gemini-border flex flex-col shadow-2xl safe-top">
+            <div className="p-3 border-b border-gemini-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-white">Nest Inspector</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                  Online
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSidePaneOpen(false)}
+                className="p-1 rounded-full text-zinc-400 hover:text-white"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-gemini-border text-xs">
+              {(["stats", "files", "logs"] as const).map((t) => (
+                <button
+                  type="button"
+                  key={t}
+                  onClick={() => fetchSidePaneData(t)}
+                  className={`flex-1 py-2 font-medium capitalize text-center transition ${
+                    sidePaneTab === t ? "text-blue-400 border-b-2 border-blue-400 bg-gemini-surface/50" : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab Body */}
+            <div className="flex-1 overflow-y-auto p-3 text-xs font-mono">
+              {sidePaneTab === "stats" && (
+                <div className="space-y-3">
+                  <div className="bg-gemini-surface border border-gemini-border rounded-xl p-3">
+                    <div className="text-zinc-400 text-[11px] mb-1">Server Host</div>
+                    <div className="text-white font-semibold">tanzeemrockz@hackclub.app</div>
+                  </div>
+                  <div className="bg-gemini-surface border border-gemini-border rounded-xl p-3">
+                    <div className="text-zinc-400 text-[11px] mb-1">RAM (2048 MB limit)</div>
+                    <div className="text-emerald-400 font-semibold">{statsData?.memory_used || "120 MB / 2048 MB"}</div>
+                  </div>
+                  <div className="bg-gemini-surface border border-gemini-border rounded-xl p-3">
+                    <div className="text-zinc-400 text-[11px] mb-1">Systemd Services</div>
+                    <div className="text-white space-y-1 text-[11px]">
+                      <div>slack-bridge.service: active (running)</div>
+                      <div>slack-dashboard.service: active (running)</div>
+                      <div>cloudflared-tunnel.service: active (running)</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {sidePaneTab === "files" && (
+                <div className="space-y-1">
+                  {filesData.length === 0 ? (
+                    <div className="text-zinc-500 py-4 text-center">Loading files...</div>
+                  ) : (
+                    filesData.map((f, i) => (
+                      <div key={i} className="flex items-center gap-2 p-1.5 rounded hover:bg-gemini-surface text-zinc-300">
+                        <svg className="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                        </svg>
+                        <span className="truncate flex-1">{f.name || f}</span>
+                        <span className="text-[10px] text-zinc-500">{f.size || ""}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {sidePaneTab === "logs" && (
+                <div className="bg-[#121214] p-2 rounded-xl border border-gemini-border text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed max-h-full overflow-x-auto">
+                  {logsData || "Waiting for recent system logs..."}
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
       </div>
 
       {/* Usage Limit & Quota Modal */}
       {isUsageModalOpen && usageData && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-gemini-surface border border-gemini-border rounded-3xl w-full max-w-lg p-5 shadow-2xl flex flex-col gap-4">
+        <div
+          onClick={() => setIsUsageModalOpen(false)}
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-gemini-surface border border-gemini-border rounded-3xl w-full max-w-lg p-5 shadow-2xl flex flex-col gap-4 cursor-default"
+          >
             <div className="flex items-center justify-between border-b border-gemini-border pb-3">
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
                 <h3 className="text-base font-semibold text-white">Usage & Quota Monitor</h3>
               </div>
-              <button onClick={() => setIsUsageModalOpen(false)} className="p-1 rounded-full text-zinc-400 hover:text-white">
+              <button
+                type="button"
+                onClick={() => setIsUsageModalOpen(false)}
+                className="p-1 rounded-full text-zinc-400 hover:text-white"
+              >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -858,6 +1209,7 @@ export default function Home() {
 
             <div className="pt-2 border-t border-gemini-border flex justify-end">
               <button
+                type="button"
                 onClick={() => setIsUsageModalOpen(false)}
                 className="px-4 py-2 rounded-full bg-white text-black font-medium text-xs hover:bg-zinc-200 transition"
               >

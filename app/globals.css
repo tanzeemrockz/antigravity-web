@@ -18,6 +18,22 @@ html, body {
   color: #e3e3e3;
   margin: 0;
   padding: 0;
+  overflow: hidden;
+}
+
+/* Prevent double-arrow on details summary across iOS Safari and WebKit */
+summary {
+  list-style: none;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Prevent auto-zooming on iOS Safari */
+@media screen and (max-width: 768px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
 }
 
 .safe-bottom {
