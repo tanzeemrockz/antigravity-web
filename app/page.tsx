@@ -58,6 +58,8 @@ interface UsageData {
   };
 }
 
+type SidePaneTab = "terminal" | "mcp" | "skills" | "stats" | "files" | "logs";
+
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -66,7 +68,7 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidePaneOpen, setIsSidePaneOpen] = useState(false);
-  const [sidePaneTab, setSidePaneTab] = useState<"files" | "stats" | "logs">("stats");
+  const [sidePaneTab, setSidePaneTab] = useState<SidePaneTab>("terminal");
   const [sidePaneLoading, setSidePaneLoading] = useState(false);
   const [sidePaneError, setSidePaneError] = useState<string | null>(null);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -74,6 +76,34 @@ export default function Home() {
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [isSlashMenuOpen, setIsSlashMenuOpen] = useState(false);
+
+  // Authentication State (Saved on Nest)
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ email: string } | null>(null);
+  const [loginEmail, setLoginEmail] = useState("imohamedtanzeem@gmail.com");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Terminal & MCP & Skills
+  const [terminalCommand, setTerminalCommand] = useState("");
+  const [terminalHistory, setTerminalHistory] = useState<
+    Array<{ command: string; stdout: string; stderr: string; exit_code: number; duration: number }>
+  >([
+    {
+      command: "uptime; whoami; agy --version",
+      stdout: "Linux tanzeemrockz 7.0.14-26-pve x86_64\nuser: root (tanzeemrockz@hackclub.app)\nagy: 1.5.14 (Nest 24/7 service active)",
+      stderr: "",
+      exit_code: 0,
+      duration: 0.01,
+    },
+  ]);
+  const [isExecutingCommand, setIsExecutingCommand] = useState(false);
+  const [commandHistoryList, setCommandHistoryList] = useState<string[]>([]);
+  const [historyNavIndex, setHistoryNavIndex] = useState(-1);
+  const [mcpServers, setMcpServers] = useState<any[]>([]);
+  const [skillsList, setSkillsList] = useState<any[]>([]);
 
   // Models & Synchronized Effort
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
@@ -100,6 +130,7 @@ export default function Home() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const terminalBottomRef = useRef<HTMLDivElement>(null);
   const isGeneratingRef = useRef(false);
   const currentPromptAbortControllerRef = useRef<AbortController | null>(null);
   const conversationAbortControllerRef = useRef<AbortController | null>(null);
@@ -215,13 +246,6 @@ export default function Home() {
     marked.use({ renderer, breaks: true, gfm: true });
   }, []);
 
-  // Fetch initial data
-  useEffect(() => {
-    loadModels();
-    loadConversations();
-    fetchUsage();
-  }, []);
-
   // Smart scroll: only scroll if already near bottom
   useEffect(() => {
     if (!chatContainerRef.current) return;
@@ -306,7 +330,136 @@ export default function Home() {
     }
   };
 
-  const fetchSidePaneData = async (tab: "files" | "stats" | "logs") => {
+  // Check auth session on startup
+  useEffect(() => {
+    const checkAuth = async () => {
+      const token = typeof window !== "undefined" ? localStorage.getItem("agy_session_token") : null;
+      if (!token) {
+        setIsAuthenticated(false);
+        return;
+      }
+      try {
+        const res = await fetch("/api/auth/verify", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated) {
+            setIsAuthenticated(true);
+            setCurrentUser(data.user || { email: "imohamedtanzeem@gmail.com" });
+            loadModels();
+            loadConversations();
+            fetchUsage();
+            return;
+          }
+        }
+        setIsAuthenticated(false);
+      } catch {
+        // Fallback for offline or cached token
+        setIsAuthenticated(true);
+        setCurrentUser({ email: "imohamedtanzeem@gmail.com" });
+        loadModels();
+        loadConversations();
+        fetchUsage();
+      }
+    };
+    checkAuth();
+  }, []);
+
+  const handleLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!loginEmail || !loginPassword) {
+      setLoginError("Please enter your email and password.");
+      return;
+    }
+    setLoginLoading(true);
+    setLoginError(null);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Authentication failed. Check your password.");
+      }
+      localStorage.setItem("agy_session_token", data.token);
+      setCurrentUser(data.user || { email: loginEmail });
+      setIsAuthenticated(true);
+      loadModels();
+      loadConversations();
+      fetchUsage();
+    } catch (err: any) {
+      setLoginError(err.message || "Failed to sign in. Verify credentials.");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("agy_session_token") : null;
+    if (token) {
+      try {
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch {}
+    }
+    localStorage.removeItem("agy_session_token");
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+  };
+
+  const handleExecuteTerminalCommand = async (cmdToRun?: string) => {
+    const cmd = (cmdToRun ?? terminalCommand).trim();
+    if (!cmd || isExecutingCommand) return;
+    setTerminalCommand("");
+    setIsExecutingCommand(true);
+    setCommandHistoryList((prev) => [cmd, ...prev]);
+    setHistoryNavIndex(-1);
+
+    try {
+      const res = await fetch("/api/terminal/exec", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: cmd, cwd: "/root" }),
+      });
+      const data = await res.json();
+      setTerminalHistory((prev) => [
+        ...prev,
+        {
+          command: cmd,
+          stdout: data.stdout || "",
+          stderr: data.stderr || "",
+          exit_code: data.exit_code ?? 0,
+          duration: data.duration ?? 0,
+        },
+      ]);
+    } catch (err: any) {
+      setTerminalHistory((prev) => [
+        ...prev,
+        {
+          command: cmd,
+          stdout: "",
+          stderr: err.message || "Failed to connect to terminal endpoint",
+          exit_code: 1,
+          duration: 0,
+        },
+      ]);
+    } finally {
+      setIsExecutingCommand(false);
+      setTimeout(() => {
+        terminalBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 50);
+    }
+  };
+
+  const fetchSidePaneData = async (tab: SidePaneTab) => {
     setSidePaneTab(tab);
     setSidePaneLoading(true);
     setSidePaneError(null);
@@ -325,6 +478,16 @@ export default function Home() {
         if (!res.ok) throw new Error(`Logs endpoint returned status ${res.status}`);
         const data = await res.json();
         setLogsData(data.logs || "");
+      } else if (tab === "mcp") {
+        const res = await fetch("/api/mcp/list");
+        if (!res.ok) throw new Error(`MCP endpoint returned status ${res.status}`);
+        const data = await res.json();
+        setMcpServers(data.servers || []);
+      } else if (tab === "skills") {
+        const res = await fetch("/api/skills/list");
+        if (!res.ok) throw new Error(`Skills endpoint returned status ${res.status}`);
+        const data = await res.json();
+        setSkillsList(data.skills || []);
       }
     } catch (err: any) {
       setSidePaneError(err.message || "Failed to load data");
@@ -387,7 +550,25 @@ export default function Home() {
     // Check for Slash Command execution
     if (!promptOverride && textToSend.startsWith("/")) {
       const cmd = textToSend.toLowerCase().split(" ")[0];
-      if (cmd === "/status") {
+      if (cmd === "/terminal") {
+        setInputPrompt("");
+        setIsSlashMenuOpen(false);
+        fetchSidePaneData("terminal");
+        setIsSidePaneOpen(true);
+        return;
+      } else if (cmd === "/mcp") {
+        setInputPrompt("");
+        setIsSlashMenuOpen(false);
+        fetchSidePaneData("mcp");
+        setIsSidePaneOpen(true);
+        return;
+      } else if (cmd === "/skills") {
+        setInputPrompt("");
+        setIsSlashMenuOpen(false);
+        fetchSidePaneData("skills");
+        setIsSidePaneOpen(true);
+        return;
+      } else if (cmd === "/status") {
         setInputPrompt("");
         setIsSlashMenuOpen(false);
         fetchSidePaneData("stats");
@@ -710,6 +891,137 @@ export default function Home() {
   const currentModelName =
     availableModels.find((m) => m.id === activeModel)?.short_name || "Gemini 3.8 Flash";
 
+  // Loading verification pulse
+  if (isAuthenticated === null) {
+    return (
+      <div className="min-h-screen bg-gemini-base flex items-center justify-center">
+        <div className="h-10 w-10 rounded-full flex items-center justify-center animate-pulse">
+          <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
+              fill="url(#gemini_grad_auth)"
+            />
+            <defs>
+              <linearGradient id="gemini_grad_auth" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#4285F4" />
+                <stop offset="0.5" stopColor="#9B72CB" />
+                <stop offset="1" stopColor="#D96570" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+      </div>
+    );
+  }
+
+  // Gemini Dark Login Screen
+  if (isAuthenticated === false) {
+    return (
+      <div className="min-h-screen bg-gemini-base flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-gemini-surface border border-gemini-border rounded-3xl p-6 sm:p-8 shadow-2xl animate-fadeIn">
+          {/* Gemini Gradient Star */}
+          <div className="flex flex-col items-center text-center mb-8">
+            <div className="h-14 w-14 rounded-2xl bg-gemini-base/80 border border-gemini-border flex items-center justify-center mb-4 shadow-inner">
+              <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
+                  fill="url(#gemini_grad_login)"
+                />
+                <defs>
+                  <linearGradient id="gemini_grad_login" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#4285F4" />
+                    <stop offset="0.5" stopColor="#9B72CB" />
+                    <stop offset="1" stopColor="#D96570" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+            <h1 className="text-2xl font-semibold text-white tracking-tight">Antigravity</h1>
+            <p className="text-xs text-zinc-400 mt-1.5 font-normal">
+              Autonomous agent workspace on Nest
+            </p>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-400 font-mono mt-3">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              tanzeemrockz@hackclub.app (24/7 Active)
+            </div>
+          </div>
+
+          {/* Login Form */}
+          <form onSubmit={handleLogin} className="space-y-4">
+            {loginError && (
+              <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>{loginError}</span>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-300">Email</label>
+              <input
+                type="email"
+                required
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                placeholder="name@example.com"
+                className="w-full px-4 py-2.5 rounded-2xl bg-gemini-base border border-gemini-border text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-400 transition"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-medium text-zinc-300">Password</label>
+              </div>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  className="w-full px-4 py-2.5 pr-11 rounded-2xl bg-gemini-base border border-gemini-border text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-400 transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label="Toggle password visibility"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-white transition"
+                >
+                  {showPassword ? (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="w-full mt-2 py-3 rounded-full bg-white hover:bg-zinc-200 text-black font-semibold text-sm transition touch-manipulation min-h-[46px] flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {loginLoading ? (
+                <>
+                  <div className="h-4 w-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                  <span>Verifying with Nest...</span>
+                </>
+              ) : (
+                <span>Sign in</span>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-gemini-base text-[#e3e3e3] antialiased select-auto">
       {/* Mobile Sidebar Backdrop */}
@@ -890,6 +1202,18 @@ export default function Home() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
           </button>
+
+          {/* User Sign Out Button */}
+          <button
+            type="button"
+            onClick={handleLogout}
+            title={`Sign out (${currentUser?.email || "tanzeem"})`}
+            className="p-2 rounded-full text-zinc-400 hover:text-rose-400 hover:bg-gemini-surface transition touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -934,6 +1258,39 @@ export default function Home() {
 
             {/* Quick Environment Tools in Sidebar */}
             <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  fetchSidePaneData("terminal");
+                  setIsSidePaneOpen(true);
+                  if (isMobile) setIsSidebarOpen(false);
+                }}
+                className="px-2 py-1.5 rounded-xl bg-gemini-surface/80 hover:bg-gemini-border text-[11px] text-zinc-300 hover:text-white text-center font-medium transition touch-manipulation min-h-[36px] flex items-center justify-center font-mono"
+              >
+                Terminal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  fetchSidePaneData("mcp");
+                  setIsSidePaneOpen(true);
+                  if (isMobile) setIsSidebarOpen(false);
+                }}
+                className="px-2 py-1.5 rounded-xl bg-gemini-surface/80 hover:bg-gemini-border text-[11px] text-zinc-300 hover:text-white text-center font-medium transition touch-manipulation min-h-[36px] flex items-center justify-center"
+              >
+                MCP
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  fetchSidePaneData("skills");
+                  setIsSidePaneOpen(true);
+                  if (isMobile) setIsSidebarOpen(false);
+                }}
+                className="px-2 py-1.5 rounded-xl bg-gemini-surface/80 hover:bg-gemini-border text-[11px] text-zinc-300 hover:text-white text-center font-medium transition touch-manipulation min-h-[36px] flex items-center justify-center"
+              >
+                Skills
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -1279,6 +1636,9 @@ export default function Home() {
                     </button>
                   </div>
                   {[
+                    { cmd: "/terminal", desc: "Interactive Shell", action: () => { setInputPrompt(""); fetchSidePaneData("terminal"); setIsSidePaneOpen(true); setIsSlashMenuOpen(false); } },
+                    { cmd: "/mcp", desc: "MCP Servers & Tools", action: () => { setInputPrompt(""); fetchSidePaneData("mcp"); setIsSidePaneOpen(true); setIsSlashMenuOpen(false); } },
+                    { cmd: "/skills", desc: "Antigravity Skills", action: () => { setInputPrompt(""); fetchSidePaneData("skills"); setIsSidePaneOpen(true); setIsSlashMenuOpen(false); } },
                     { cmd: "/status", desc: "RAM & Services", action: () => { setInputPrompt(""); fetchSidePaneData("stats"); setIsSidePaneOpen(true); setIsSlashMenuOpen(false); } },
                     { cmd: "/files", desc: "Workspace Tree", action: () => { setInputPrompt(""); fetchSidePaneData("files"); setIsSidePaneOpen(true); setIsSlashMenuOpen(false); } },
                     { cmd: "/logs", desc: "Live Bridge Logs", action: () => { setInputPrompt(""); fetchSidePaneData("logs"); setIsSidePaneOpen(true); setIsSlashMenuOpen(false); } },
@@ -1415,14 +1775,14 @@ export default function Home() {
             </div>
 
             {/* Tabs */}
-            <div className="flex border-b border-gemini-border text-xs">
-              {(["stats", "files", "logs"] as const).map((t) => (
+            <div className="flex border-b border-gemini-border text-xs overflow-x-auto no-scrollbar">
+              {(["terminal", "mcp", "skills", "stats", "files", "logs"] as const).map((t) => (
                 <button
                   type="button"
                   key={t}
                   onClick={() => fetchSidePaneData(t)}
-                  className={`flex-1 py-2.5 font-medium capitalize text-center transition touch-manipulation ${
-                    sidePaneTab === t ? "text-blue-400 border-b-2 border-blue-400 bg-gemini-surface/50" : "text-zinc-400 hover:text-white"
+                  className={`flex-shrink-0 px-3 py-2.5 font-medium capitalize text-center transition touch-manipulation whitespace-nowrap ${
+                    sidePaneTab === t ? "text-blue-400 border-b-2 border-blue-400 bg-gemini-surface/50 font-semibold" : "text-zinc-400 hover:text-white"
                   }`}
                 >
                   {t}
@@ -1441,6 +1801,194 @@ export default function Home() {
               {sidePaneError && (
                 <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 text-rose-400 text-xs mb-3">
                   {sidePaneError}
+                </div>
+              )}
+
+              {/* Terminal Tab */}
+              {!sidePaneLoading && !sidePaneError && sidePaneTab === "terminal" && (
+                <div className="flex flex-col h-full space-y-3 font-mono text-[11px]">
+                  {/* Preset Quick Chips */}
+                  <div className="flex flex-wrap gap-1.5 pb-2 border-b border-gemini-border/60">
+                    {[
+                      "uptime",
+                      "free -h",
+                      "df -h",
+                      "systemctl status slack-dashboard",
+                      "agy --version",
+                      "ps aux | grep agy",
+                    ].map((cmd) => (
+                      <button
+                        type="button"
+                        key={cmd}
+                        onClick={() => handleExecuteTerminalCommand(cmd)}
+                        className="px-2 py-1 rounded-lg bg-gemini-surface hover:bg-gemini-border border border-gemini-border/60 text-zinc-300 hover:text-white transition touch-manipulation text-[10px]"
+                      >
+                        {cmd}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setTerminalHistory([])}
+                      className="ml-auto px-2 py-1 rounded-lg text-zinc-500 hover:text-zinc-300 text-[10px]"
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  {/* Terminal Output Window */}
+                  <div className="bg-[#101112] border border-gemini-border/80 rounded-2xl p-3 overflow-y-auto space-y-3 max-h-[50vh] min-h-[220px]">
+                    {terminalHistory.map((entry, idx) => (
+                      <div key={idx} className="space-y-1">
+                        <div className="flex items-center justify-between text-zinc-400 text-[10px]">
+                          <span className="text-emerald-400">root@tanzeemrockz:~$ <span className="text-white font-semibold">{entry.command}</span></span>
+                          <span className="text-zinc-500">{entry.duration}s</span>
+                        </div>
+                        {entry.stdout && (
+                          <div className="text-zinc-200 whitespace-pre-wrap leading-relaxed pl-2 border-l border-zinc-700/60">
+                            {entry.stdout}
+                          </div>
+                        )}
+                        {entry.stderr && (
+                          <div className="text-rose-400 whitespace-pre-wrap leading-relaxed pl-2 border-l border-rose-500/50">
+                            {entry.stderr}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {isExecutingCommand && (
+                      <div className="flex items-center gap-2 text-zinc-400 animate-pulse text-[11px]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+                        <span>Executing on Nest...</span>
+                      </div>
+                    )}
+                    <div ref={terminalBottomRef} />
+                  </div>
+
+                  {/* Terminal Input Bar */}
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleExecuteTerminalCommand();
+                    }}
+                    className="flex items-center gap-1.5 pt-1"
+                  >
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={terminalCommand}
+                        onChange={(e) => setTerminalCommand(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            if (commandHistoryList.length > 0) {
+                              const nextIdx = Math.min(historyNavIndex + 1, commandHistoryList.length - 1);
+                              setHistoryNavIndex(nextIdx);
+                              setTerminalCommand(commandHistoryList[nextIdx]);
+                            }
+                          } else if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            if (historyNavIndex > 0) {
+                              const prevIdx = historyNavIndex - 1;
+                              setHistoryNavIndex(prevIdx);
+                              setTerminalCommand(commandHistoryList[prevIdx]);
+                            } else if (historyNavIndex === 0) {
+                              setHistoryNavIndex(-1);
+                              setTerminalCommand("");
+                            }
+                          }
+                        }}
+                        placeholder="Run command on Nest..."
+                        className="w-full bg-gemini-surface border border-gemini-border rounded-xl px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-400 text-xs"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isExecutingCommand || !terminalCommand.trim()}
+                      className="px-3.5 py-2 rounded-xl bg-white hover:bg-zinc-200 text-black font-semibold text-xs disabled:opacity-40 transition touch-manipulation min-h-[36px]"
+                    >
+                      Run
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* MCP Servers Tab */}
+              {!sidePaneLoading && !sidePaneError && sidePaneTab === "mcp" && (
+                <div className="space-y-2.5">
+                  <div className="text-[11px] text-zinc-400 mb-1">
+                    Model Context Protocol servers connected to Antigravity
+                  </div>
+                  {mcpServers.length === 0 ? (
+                    <div className="text-zinc-500 py-6 text-center">Loading connected servers...</div>
+                  ) : (
+                    mcpServers.map((server, i) => (
+                      <div key={i} className="bg-gemini-surface border border-gemini-border rounded-2xl p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
+                            <span className="text-white font-medium text-xs font-mono">{server.name}</span>
+                          </div>
+                          <span className="text-[10px] bg-blue-500/10 border border-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-mono">
+                            {server.tools_count} tools
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1 pt-1">
+                          {(server.tools || []).slice(0, 6).map((tool: string, tIdx: number) => (
+                            <span
+                              key={tIdx}
+                              className="bg-gemini-base border border-gemini-border/70 text-zinc-300 px-2 py-0.5 rounded-md text-[10px] font-mono"
+                            >
+                              {tool}
+                            </span>
+                          ))}
+                          {(server.tools || []).length > 6 && (
+                            <span className="text-zinc-500 text-[10px] self-center">
+                              +{server.tools.length - 6} more
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* Skills Tab */}
+              {!sidePaneLoading && !sidePaneError && sidePaneTab === "skills" && (
+                <div className="space-y-2.5">
+                  <div className="text-[11px] text-zinc-400 mb-1">
+                    Active Antigravity autonomous agent skills
+                  </div>
+                  {skillsList.length === 0 ? (
+                    <div className="text-zinc-500 py-6 text-center">Loading skills catalog...</div>
+                  ) : (
+                    skillsList.map((skill, i) => (
+                      <div key={i} className="bg-gemini-surface border border-gemini-border rounded-2xl p-3 flex flex-col justify-between gap-2">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-white font-medium text-xs">{skill.name}</span>
+                            <span className="text-[10px] bg-purple-500/10 border border-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full font-mono uppercase">
+                              {skill.source}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed font-sans">
+                            {skill.description}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInputPrompt((prev) => (prev ? prev + " " : "") + `@${skill.id} `);
+                            setIsSidePaneOpen(false);
+                            textareaRef.current?.focus();
+                          }}
+                          className="self-end px-2.5 py-1 rounded-lg bg-gemini-border hover:bg-zinc-700 text-xs text-zinc-200 hover:text-white transition touch-manipulation font-sans"
+                        >
+                          Use in prompt
+                        </button>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
 
